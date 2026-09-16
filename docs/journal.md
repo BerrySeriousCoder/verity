@@ -1,0 +1,41 @@
+# Progress journal
+
+## 2026-09-17 — Product boundary and repository initialization
+
+User established that review/reporting is the whole product, not a temporary boundary before document correction. Authorized a production-minded monorepo in `project/` and ongoing Git commits; evaluation tooling follows the MVP. Selected TypeScript/pnpm and PostgreSQL with the installed 16-alpine image. Initialized outer Git so documents and code share history. Scaffold validation results will be recorded after checks complete.
+
+Foundation validation: pinned dependencies installed; frozen-lockfile offline install passed; formatting and strict TypeScript checks passed. Isolated Docker PostgreSQL became healthy and a SQL query confirmed database/user `verity` on PostgreSQL 16.15. No application behavior exists yet, so no application tests were claimed. CI is configured but has not run remotely.
+
+## 2026-09-17 — Batched clarification behavior accepted
+
+User agreed to finish independent checks before presenting collected questions, then resolve remaining items using user input. Task-wide uncertainty may pause earlier. Recorded ADR 0003 and updated HLD/workspace behavior. Next proposed discussion: whether the MVP ends at a review report or also changes documents/performs actions.
+
+## 2026-09-17 — Review mechanism decisions preserved
+
+Recorded ADR 0002 from the brainstorming: clear tasks proceed without plan approval; vague requests receive concrete scope clarification; general alignment checks inventory both documents; bounded reading produces persistent atomic obligations; a separate auditor inspects source material independently before reconciling the main inventory. Coverage audit and finding verification remain distinct. Both directional inventories feed one user-facing checklist. Open next: unmatched/ambiguous outcome handling and when the agent interrupts the user.
+
+## 2026-09-17 — MVP excludes OCR and scans
+
+Recorded the user's explicit scope decision in ADR 0001 and updated active design documents. Focus remains born-digital PDFs, spreadsheets, and CSVs. Unsupported image-only material cannot silently count as reviewed. Next product discussion: task initiation, autonomous review, and the report the user receives.
+
+## 2026-09-17 — Citation interaction mechanism
+
+User asked how clicking evidence opens and highlights a PDF or sheet. Added a partial review-interface LLD covering stored anchors, authenticated resolution, immutable versions, PDF coordinate transforms, OCR mappings, spreadsheet/CSV source ranges, graceful fallbacks, and a proposed validation slice. Proposed PDF.js after checking official documentation; grid library remains unselected. No viewer has been built or tested yet.
+
+## 2026-09-17 — Initial design notebook
+
+Established a documentation structure and a draft HLD from the proposed Verity concept. No application code or benchmark results exist yet.
+
+Proposals: one estimate-reconciliation workflow, a reusable evidence core, a modular monolith, and a simulated outbound action for the initial demonstration. These await discussion.
+
+Key engineering distinctions: citations need immutable extraction identity; support differs from authorization; semantic verification remains fallible; conflicting values need matching scope; approval must bind the exact action; external timeouts can leave an unknown outcome.
+
+Next: choose the first workflow and establish practical constraints, then refine the HLD before writing the evidence-model LLD.
+
+## 2026-09-17 — Correctness scope expanded
+
+User emphasized large documents, multiple documents, varied document types, and identifying the major failure modes before building. Added a 38-item failure inventory with candidate defenses and test ideas. Updated scope, HLD, and evaluation plan to make document complexity a core design input. Next discussion should define the supported document envelope and prioritize failures before selecting the stack. No defenses are implemented or validated yet.
+
+## 2026-09-17 — On-demand document workspace clarified
+
+User described repository-style navigation for documents: list, search, read whole files or selected pages/regions, gather context iteratively, plan, act, and verify. Their concrete example is exhaustive final-policy versus quotation comparison across PDFs, sheets, and CSVs. Added the workspace interaction design and separate source/obligation coverage ledgers. Clarified that exhaustive source inspection can be batched without fitting all documents into one context, and that policy-to-quotation comparison differs from checking quotation promises missing from the policy. No tool interfaces are implemented yet.
