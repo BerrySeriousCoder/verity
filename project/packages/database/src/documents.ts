@@ -1,5 +1,6 @@
 import type { DocumentRepository, DocumentVersion } from '@verity/core';
 import type { Pool } from 'pg';
+import { randomUUID } from 'node:crypto';
 
 interface DocumentRow {
   id: string;
@@ -8,6 +9,7 @@ interface DocumentRow {
   sha256: string;
   byte_size: number;
   page_count: number;
+  format: DocumentVersion['format'];
   created_at: Date;
 }
 
@@ -19,6 +21,7 @@ function toDocument(row: DocumentRow): DocumentVersion {
     sha256: row.sha256,
     byteSize: row.byte_size,
     pageCount: row.page_count,
+    format: row.format,
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -33,30 +36,46 @@ export function documentRepository(pool: Pool): DocumentRepository {
       return result.rowCount === 1;
     },
     async insertOrFind(document) {
-      const inserted = await pool.query<DocumentRow>(
-        `INSERT INTO document_versions
-        (id, workspace_id, filename, sha256, byte_size, page_count, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (workspace_id, sha256) DO NOTHING RETURNING *`,
-        [
-          document.id,
-          document.workspaceId,
-          document.filename,
-          document.sha256,
-          document.byteSize,
-          document.pageCount,
-          document.createdAt,
-        ],
-      );
-      if (inserted.rows[0]) return toDocument(inserted.rows[0]);
-      // A separate statement sees the committed winner of a concurrent insert.
-      const existing = await pool.query<DocumentRow>(
-        'SELECT * FROM document_versions WHERE workspace_id = $1 AND sha256 = $2',
-        [document.workspaceId, document.sha256],
-      );
-      if (!existing.rows[0])
-        throw new Error('Duplicate document could not be resolved.');
-      return toDocument(existing.rows[0]);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const inserted = await client.query<DocumentRow>(
+          `INSERT INTO document_versions
+          (id, workspace_id, filename, sha256, byte_size, page_count, created_at, format)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          ON CONFLICT (workspace_id, sha256) DO NOTHING RETURNING *`,
+          [
+            document.id,
+            document.workspaceId,
+            document.filename,
+            document.sha256,
+            document.byteSize,
+            document.pageCount,
+            document.createdAt,
+            document.format,
+          ],
+        );
+        let row = inserted.rows[0];
+        if (!row) {
+          const existing = await client.query<DocumentRow>(
+            'SELECT * FROM document_versions WHERE workspace_id=$1 AND sha256=$2',
+            [document.workspaceId, document.sha256],
+          );
+          row = existing.rows[0];
+        }
+        if (!row) throw new Error('Document identity could not be resolved.');
+        await client.query(
+          'INSERT INTO document_extractions (id, document_id) VALUES ($1,$2) ON CONFLICT (document_id) DO NOTHING',
+          [randomUUID(), row.id],
+        );
+        await client.query('COMMIT');
+        return toDocument(row);
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
     async find(workspaceId, documentId) {
       const result = await pool.query<DocumentRow>(

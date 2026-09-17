@@ -6,6 +6,9 @@ import {
   MAX_PDF_BYTES,
 } from '@verity/core';
 import type { BlobStore, DocumentRepository, PdfInspector } from '@verity/core';
+import type { EvidenceRepository, ReviewRepository } from '@verity/database';
+import { registerEvidenceRoutes } from './routes/evidence.js';
+import { registerReviewRoutes } from './routes/reviews.js';
 
 interface AppDependencies {
   repository: DocumentRepository;
@@ -14,6 +17,8 @@ interface AppDependencies {
   workspaceId: string;
   ready: () => Promise<void>;
   logger?: boolean;
+  evidence?: EvidenceRepository;
+  reviews?: ReviewRepository;
 }
 
 const uuid = { type: 'string', format: 'uuid' } as const;
@@ -83,7 +88,7 @@ export async function buildApp(dependencies: AppDependencies) {
     ) {
       return reply.code(413).send({
         code: 'FILE_TOO_LARGE',
-        message: 'PDF must be 20 MiB or smaller.',
+        message: 'File must be 20 MiB or smaller.',
       });
     }
     if (
@@ -102,7 +107,7 @@ export async function buildApp(dependencies: AppDependencies) {
       return reply.code(400).send({
         code: 'INVALID_UPLOAD',
         message:
-          'Invalid or incomplete upload. Send exactly one PDF file without extra fields.',
+          'Invalid or incomplete upload. Send exactly one PDF, CSV, or XLSX file without extra fields.',
       });
     }
     if (error instanceof Error && 'validation' in error) {
@@ -121,7 +126,7 @@ export async function buildApp(dependencies: AppDependencies) {
       return reply.code(error.statusCode).send({
         code: 'INVALID_REQUEST',
         message:
-          'Invalid request. Upload exactly one PDF (up to 20 MiB), without extra fields.',
+          'Invalid request. Upload exactly one PDF, CSV, or XLSX file (up to 20 MiB), without extra fields.',
       });
     }
     request.log.error({ err: error }, 'Request failed');
@@ -197,14 +202,15 @@ export async function buildApp(dependencies: AppDependencies) {
         if (part.type !== 'file')
           return reply.code(400).send({
             code: 'INVALID_REQUEST',
-            message: 'Upload exactly one PDF file.',
+            message: 'Upload exactly one PDF, CSV, or XLSX file.',
           });
         upload = { filename: part.filename, bytes: await part.toBuffer() };
       }
       if (!upload)
-        return reply
-          .code(400)
-          .send({ code: 'FILE_REQUIRED', message: 'Choose a PDF to upload.' });
+        return reply.code(400).send({
+          code: 'FILE_REQUIRED',
+          message: 'Choose a document to upload.',
+        });
       const document = await service.upload(
         request.params.workspaceId,
         upload.filename,
@@ -237,12 +243,24 @@ export async function buildApp(dependencies: AppDependencies) {
           .send({ code: 'NOT_FOUND', message: 'Document not found.' });
       const bytes = await dependencies.blobs.read(document.sha256);
       return reply
-        .type('application/pdf')
-        .header('Content-Disposition', 'inline; filename="document.pdf"')
+        .type(
+          document.format === 'pdf'
+            ? 'application/pdf'
+            : document.format === 'csv'
+              ? 'text/csv; charset=utf-8'
+              : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        .header(
+          'Content-Disposition',
+          `${document.format === 'pdf' ? 'inline' : 'attachment'}; filename="document.${document.format}"`,
+        )
         .header('Content-Security-Policy', "sandbox; default-src 'none'")
         .header('Content-Length', bytes.byteLength)
         .send(Buffer.from(bytes));
     },
   );
+  if (dependencies.evidence) registerEvidenceRoutes(app, dependencies.evidence);
+  if (dependencies.evidence && dependencies.reviews)
+    registerReviewRoutes(app, dependencies.reviews, dependencies.evidence);
   return app;
 }

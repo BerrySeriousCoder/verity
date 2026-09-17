@@ -8,6 +8,7 @@ export interface DocumentVersion {
   byteSize: number;
   pageCount: number;
   createdAt: string;
+  format: 'pdf' | 'csv' | 'xlsx';
 }
 
 export interface DocumentRepository {
@@ -30,13 +31,19 @@ export interface BlobStore {
 }
 
 export interface PdfInspector {
-  inspect(bytes: Uint8Array): Promise<{ pageCount: number }>;
+  inspect(
+    bytes: Uint8Array,
+    format?: 'pdf' | 'csv' | 'xlsx',
+  ): Promise<{ pageCount: number }>;
 }
 
 export class DocumentError extends Error {
   constructor(
     public readonly code:
-      'INVALID_PDF' | 'FILE_TOO_LARGE' | 'WORKSPACE_NOT_FOUND',
+      | 'INVALID_PDF'
+      | 'INVALID_DOCUMENT'
+      | 'FILE_TOO_LARGE'
+      | 'WORKSPACE_NOT_FOUND',
     message: string,
   ) {
     super(message);

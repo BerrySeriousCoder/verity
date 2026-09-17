@@ -9,6 +9,7 @@ import {
   Pool,
   databaseUrl,
   documentRepository,
+  evidenceRepository,
   ensureLocalWorkspace,
   LOCAL_WORKSPACE_ID,
   migrate,
@@ -64,6 +65,7 @@ before(async () => {
   source = await fixture('Verity test policy');
   app = await buildApp({
     repository: documentRepository(pool),
+    evidence: evidenceRepository(pool),
     blobs: localBlobStore(directory),
     inspector: pdfInspector,
     workspaceId: LOCAL_WORKSPACE_ID,
@@ -84,13 +86,18 @@ after(async () => {
 test('migrations are repeatable and reject changed history', async () => {
   await migrate(pool);
   const result = await pool.query<{ checksum: string }>(
-    'SELECT checksum FROM schema_migrations LIMIT 1',
+    "SELECT checksum FROM schema_migrations WHERE name = '0001_documents.sql'",
   );
   const original = result.rows[0]?.checksum;
   assert.ok(original);
-  await pool.query("UPDATE schema_migrations SET checksum = 'changed'");
+  await pool.query(
+    "UPDATE schema_migrations SET checksum = 'changed' WHERE name = '0001_documents.sql'",
+  );
   await assert.rejects(migrate(pool), /Migration changed/);
-  await pool.query('UPDATE schema_migrations SET checksum = $1', [original]);
+  await pool.query(
+    "UPDATE schema_migrations SET checksum = $1 WHERE name = '0001_documents.sql'",
+    [original],
+  );
 });
 
 test('upload, list, and file retrieval preserve original identity and bytes', async () => {
@@ -255,5 +262,106 @@ test('rejects cross-site writes and non-local hostnames', async () => {
     (await app.inject({ url: base, headers: { host: 'untrusted.example' } }))
       .statusCode,
     403,
+  );
+});
+
+test('extraction checkpoints preserve citations and reject stale leases and cross-workspace access', async () => {
+  const evidence = evidenceRepository(pool);
+  const job = await evidence.claimExtraction();
+  assert.ok(job);
+  assert.equal(await evidence.heartbeat(job), true);
+  await assert.rejects(
+    evidence.complete({ ...job, leaseToken: randomUUID() }, []),
+    /lease lost/,
+  );
+  await evidence.complete(job, [
+    {
+      kind: 'pdf_page',
+      label: 'Page 1',
+      locator: { pageIndex: 0 },
+      warnings: [],
+      blocks: [
+        {
+          text: 'Flood extension limit 1250',
+          anchor: {
+            kind: 'pdf',
+            pageIndex: 0,
+            rectangles: [[10, 20, 150, 35]],
+          },
+        },
+      ],
+    },
+  ]);
+  const extraction = await evidence.inspect(LOCAL_WORKSPACE_ID, job.documentId);
+  assert.equal(extraction?.status, 'ready');
+  const unit = extraction?.units[0];
+  assert.ok(unit);
+  const blocks = await evidence.blocks(LOCAL_WORKSPACE_ID, unit.id);
+  assert.equal(blocks.length, 1);
+  const block = blocks[0];
+  assert.ok(block);
+  const resolved = await evidence.resolve(
+    LOCAL_WORKSPACE_ID,
+    [block.id],
+    [job.documentId],
+  );
+  assert.equal(resolved[0]?.documentId, job.documentId);
+  assert.deepEqual(await evidence.resolve(randomUUID(), [block.id]), []);
+  assert.deepEqual(
+    await evidence.resolve(LOCAL_WORKSPACE_ID, [block.id], [randomUUID()]),
+    [],
+  );
+  assert.equal(
+    (await evidence.search(LOCAL_WORKSPACE_ID, [job.documentId], 'Flood'))[0]
+      ?.id,
+    block.id,
+  );
+  assert.equal(await evidence.heartbeat(job), false);
+  assert.equal(await evidence.retry(LOCAL_WORKSPACE_ID, job.documentId), false);
+  const response = await app.inject({
+    url: `/api/workspaces/${LOCAL_WORKSPACE_ID}/evidence/${block.id}`,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    (
+      await app.inject({
+        url: `/api/workspaces/${randomUUID()}/evidence/${block.id}`,
+      })
+    ).statusCode,
+    404,
+  );
+  assert.equal(
+    (
+      await app.inject({
+        method: 'POST',
+        url: `${base}/${job.documentId}/extraction/retry`,
+        headers: { origin: 'https://untrusted.example' },
+      })
+    ).statusCode,
+    403,
+  );
+});
+
+test('expired extraction leases can be reclaimed without accepting old worker results', async () => {
+  const evidence = evidenceRepository(pool);
+  const original = await evidence.claimExtraction();
+  assert.ok(original);
+  await pool.query(
+    "UPDATE document_extractions SET lease_until=now()-interval '1 second',created_at=now()-interval '1 day' WHERE id=$1",
+    [original.id],
+  );
+  const resumed = await evidence.claimExtraction();
+  assert.equal(resumed?.id, original.id);
+  assert.ok(resumed);
+  assert.notEqual(resumed.leaseToken, original.leaseToken);
+  await assert.rejects(evidence.complete(original, []), /lease lost/);
+  await evidence.fail(resumed, 'A parser failure');
+  assert.equal(
+    await evidence.retry(LOCAL_WORKSPACE_ID, resumed.documentId),
+    true,
+  );
+  assert.equal(
+    (await evidence.inspect(LOCAL_WORKSPACE_ID, resumed.documentId))?.status,
+    'queued',
   );
 });

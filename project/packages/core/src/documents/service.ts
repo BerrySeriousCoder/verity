@@ -17,14 +17,25 @@ export function createDocumentService(dependencies: {
       if (bytes.byteLength > MAX_PDF_BYTES) {
         throw new DocumentError(
           'FILE_TOO_LARGE',
-          'PDF must be 20 MiB or smaller.',
+          'File must be 20 MiB or smaller.',
         );
       }
-      if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') {
+      const pdfSignature =
+        new TextDecoder().decode(bytes.subarray(0, 5)) === '%PDF-';
+      const extension = filename.toLowerCase().split('.').at(-1);
+      const format = pdfSignature
+        ? 'pdf'
+        : extension === 'csv'
+          ? 'csv'
+          : extension === 'xlsx'
+            ? 'xlsx'
+            : 'pdf';
+      if (format === 'pdf' && !pdfSignature) {
         throw new DocumentError('INVALID_PDF', 'Choose a valid PDF file.');
       }
-
-      const { pageCount } = await inspector.inspect(bytes);
+      if (!bytes.byteLength)
+        throw new DocumentError('INVALID_DOCUMENT', 'The file is empty.');
+      const { pageCount } = await inspector.inspect(bytes, format);
       const sha256 = createHash('sha256').update(bytes).digest('hex');
       // Names are display metadata only. They never enter a filesystem path.
       const displayName = filename
@@ -42,6 +53,7 @@ export function createDocumentService(dependencies: {
         sha256,
         byteSize: bytes.byteLength,
         pageCount,
+        format,
         createdAt: new Date().toISOString(),
       });
     },

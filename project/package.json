@@ -13,12 +13,13 @@
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
-    "dev": "pnpm --parallel --filter @verity/api --filter @verity/web dev",
+    "dev": "pnpm --parallel --filter @verity/api --filter @verity/web --filter @verity/worker dev",
     "build": "pnpm --filter @verity/web build",
-    "test": "pnpm --filter @verity/core test",
+    "test": "pnpm -r --if-present test",
     "test:integration": "pnpm --filter @verity/api test:integration",
     "db:migrate": "pnpm --filter @verity/database migrate",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:live": "pnpm --filter @verity/api test:live"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

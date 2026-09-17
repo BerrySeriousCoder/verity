@@ -1,0 +1,19 @@
+{
+  "name": "@verity/ingestion",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@verity/core": "workspace:*",
+    "csv-parse": "7.0.2",
+    "exceljs": "4.4.0",
+    "pdfjs-dist": "5.4.296"
+  }
+}

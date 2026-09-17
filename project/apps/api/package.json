@@ -6,13 +6,19 @@
   "scripts": {
     "dev": "node --watch --import ../../scripts/load-env.mjs --import tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test:integration": "node --import tsx --test test/*.test.ts"
+    "test:integration": "node --import tsx --test test/*.test.ts",
+    "test:live": "node --import ../../scripts/load-env.mjs --import tsx scripts/live-review.ts"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.1",
     "@verity/core": "workspace:*",
     "@verity/database": "workspace:*",
+    "@verity/storage": "workspace:*",
     "fastify": "5.12.5",
     "pdf-lib": "1.17.1"
+  },
+  "devDependencies": {
+    "@verity/agent": "workspace:^",
+    "@verity/ingestion": "workspace:^"
   }
 }

@@ -6,6 +6,8 @@ import {
   documentRepository,
   ensureLocalWorkspace,
   LOCAL_WORKSPACE_ID,
+  evidenceRepository,
+  reviewRepository,
 } from '@verity/database';
 import { buildApp } from './app.js';
 import { localBlobStore } from './adapters/local-blobs.js';
@@ -34,6 +36,8 @@ try {
   await ensureLocalWorkspace(pool);
   const app = await buildApp({
     repository: documentRepository(pool),
+    evidence: evidenceRepository(pool),
+    reviews: reviewRepository(pool),
     blobs: localBlobStore(blobDirectory),
     inspector: pdfInspector,
     workspaceId: LOCAL_WORKSPACE_ID,

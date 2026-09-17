@@ -1,0 +1,17 @@
+{
+  "name": "@verity/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import ../../scripts/load-env.mjs --import tsx src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@verity/core": "workspace:*",
+    "@verity/database": "workspace:*",
+    "@verity/storage": "workspace:*",
+    "@verity/ingestion": "workspace:*",
+    "@verity/agent": "workspace:*"
+  }
+}
