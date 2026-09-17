@@ -30,14 +30,14 @@ export function DocumentPanel(props: DocumentPanelProps) {
         </span>
       </div>
       <p className="mt-2 mb-5 text-xs text-stone-500">
-        Upload digital PDFs to get started.
+        Upload digital PDFs, CSVs, or workbooks.
       </p>
       <input
         ref={input}
         className="sr-only"
         type="file"
-        accept=".pdf,application/pdf"
-        aria-label="Choose PDF"
+        accept=".pdf,.csv,.xlsx"
+        aria-label="Choose document"
         disabled={!props.canUpload || props.uploading || props.loadingMore}
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -53,10 +53,10 @@ export function DocumentPanel(props: DocumentPanelProps) {
         disabled={!props.canUpload || props.uploading || props.loadingMore}
         onClick={() => input.current?.click()}
       >
-        {props.uploading ? 'Uploading…' : '+ Upload PDF'}
+        {props.uploading ? 'Uploading…' : '+ Upload document'}
       </Button>
       <p className="mt-2 mb-6 text-center text-[10px] text-stone-400">
-        One PDF at a time · Up to 20 MiB
+        One file at a time · Up to 20 MiB
       </p>
       {props.loading ? (
         <p role="status" className="px-1 py-4 text-xs leading-6 text-stone-500">
@@ -76,15 +76,16 @@ export function DocumentPanel(props: DocumentPanelProps) {
                 onClick={() => props.onSelect(document)}
               >
                 <span className="shrink-0 rounded border border-amber-200/60 bg-amber-50/50 px-1.5 pt-3 pb-1 text-[8px] font-semibold text-amber-800/70">
-                  PDF
+                  {document.format.toUpperCase()}
                 </span>
                 <span className="flex min-w-0 flex-col gap-1">
                   <strong className="text-xs font-medium wrap-anywhere">
                     {document.filename}
                   </strong>
                   <span className="text-[10px] text-stone-500">
-                    {document.pageCount}{' '}
-                    {document.pageCount === 1 ? 'page' : 'pages'} ·{' '}
+                    {document.format === 'pdf'
+                      ? `${document.pageCount} ${document.pageCount === 1 ? 'page' : 'pages'} · `
+                      : ''}
                     {(document.byteSize / 1024).toFixed(0)} KB
                   </span>
                 </span>

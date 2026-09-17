@@ -1,25 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import type { DocumentVersion } from '@verity/core';
+import type { DocumentVersion, ResolvedEvidence } from '@verity/core';
 import { api } from './api';
 import { DocumentPanel } from './components/DocumentPanel';
+import { SourceViewer } from './components/SourceViewer';
 import { EmptyViewer } from './components/EmptyViewer';
 import { Button } from './components/Button';
-
-const PdfViewer = dynamic(
-  () => import('./PdfViewer').then((module) => module.PdfViewer),
-  {
-    ssr: false,
-    loading: () => (
-      <p className="p-6 text-xs text-stone-500" role="status">
-        Loading viewer…
-      </p>
-    ),
-  },
-);
+import { ReviewPanel } from './components/ReviewPanel';
 
 function message(error: unknown): string {
   return error instanceof Error
@@ -41,6 +30,33 @@ export function App() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [citation, setCitation] = useState<ResolvedEvidence | null>(null);
+
+  async function openCitation(id: string) {
+    if (!workspace) return;
+    try {
+      const resolved = await api.evidence(workspace.id, id);
+      let document = documents.find((item) => item.id === resolved.documentId);
+      if (!document) {
+        for (let offset = 0; !document; offset += 50) {
+          const page = await api.documents(workspace.id, offset);
+          document = page.documents.find(
+            (item) => item.id === resolved.documentId,
+          );
+          if (!page.hasMore) break;
+        }
+      }
+      if (!document)
+        throw new Error('The cited original document is unavailable.');
+      setSelected(document);
+      setCitation(resolved);
+      window.document
+        .getElementById('source-workspace')
+        ?.scrollIntoView({ behavior: 'smooth' });
+    } catch (cause) {
+      setError(message(cause));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +87,7 @@ export function App() {
     setError(null);
     setNotice('');
     if (file.size > 20 * 1024 * 1024) {
-      setError('PDF must be 20 MiB or smaller.');
+      setError('File must be 20 MiB or smaller.');
       return;
     }
     setUploading(true);
@@ -162,7 +178,17 @@ export function App() {
         <p className="sr-only" role="status">
           {notice}
         </p>
-        <div className="grid min-h-150 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm shadow-stone-200/30 md:grid-cols-[290px_minmax(0,1fr)]">
+        {workspace && (
+          <ReviewPanel
+            workspaceId={workspace.id}
+            documents={documents}
+            onCitation={(id) => void openCitation(id)}
+          />
+        )}
+        <div
+          id="source-workspace"
+          className="grid min-h-150 overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm shadow-stone-200/30 md:grid-cols-[290px_minmax(0,1fr)]"
+        >
           <DocumentPanel
             documents={documents}
             {...(selected ? { selectedId: selected.id } : {})}
@@ -172,11 +198,18 @@ export function App() {
             hasMore={hasMore}
             loadingMore={loadingMore}
             onUpload={upload}
-            onSelect={setSelected}
+            onSelect={(document) => {
+              setSelected(document);
+              setCitation(null);
+            }}
             onLoadMore={loadMore}
           />
           {selected ? (
-            <PdfViewer key={selected.id} document={selected} />
+            <SourceViewer
+              key={selected.id}
+              document={selected}
+              {...(citation?.documentId === selected.id ? { citation } : {})}
+            />
           ) : (
             <EmptyViewer />
           )}

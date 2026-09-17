@@ -226,6 +226,17 @@ export function registerReviewRoutes(
             quotations: detail.run.quotationIds,
           },
           report: detail.report,
+          citations: await evidence.resolve(
+            request.params.workspaceId,
+            [
+              ...new Set(
+                detail.report.findings.flatMap(
+                  (finding) => finding.evidenceIds,
+                ),
+              ),
+            ],
+            [detail.run.policyId, ...detail.run.quotationIds],
+          ),
           models: {
             reviewer: detail.run.reviewerModel,
             auditor: detail.run.auditorModel,

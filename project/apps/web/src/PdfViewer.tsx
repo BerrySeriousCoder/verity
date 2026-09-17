@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Button } from './components/Button';
-import type { DocumentVersion } from '@verity/core';
+import type { DocumentVersion, PdfAnchor } from '@verity/core';
 import { api } from './api';
 
 GlobalWorkerOptions.workerSrc = new URL(
@@ -12,7 +12,13 @@ GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-export function PdfViewer({ document }: { document: DocumentVersion }) {
+export function PdfViewer({
+  document,
+  anchor,
+}: {
+  document: DocumentVersion;
+  anchor?: PdfAnchor;
+}) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
@@ -20,6 +26,10 @@ export function PdfViewer({ document }: { document: DocumentVersion }) {
   const [rendering, setRendering] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const surface = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (anchor) setPage(anchor.pageIndex + 1);
+  }, [anchor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +90,41 @@ export function PdfViewer({ document }: { document: DocumentVersion }) {
       await task.promise;
       if (!cancelled) {
         container.replaceChildren(canvas);
+        if (anchor?.pageIndex === page - 1) {
+          const overlay = window.document.createElementNS(
+            'http://www.w3.org/2000/svg',
+            'svg',
+          );
+          overlay.setAttribute(
+            'viewBox',
+            `0 0 ${viewport.width} ${viewport.height}`,
+          );
+          overlay.setAttribute('width', String(viewport.width));
+          overlay.setAttribute('height', String(viewport.height));
+          overlay.setAttribute('aria-label', 'Cited evidence highlight');
+          overlay.classList.add('absolute', 'top-0', 'pointer-events-none');
+          for (const box of anchor.rectangles) {
+            const [x1, y1, x2, y2] = viewport.convertToViewportRectangle(box);
+            if (
+              x1 === undefined ||
+              y1 === undefined ||
+              x2 === undefined ||
+              y2 === undefined
+            )
+              continue;
+            const rect = window.document.createElementNS(
+              'http://www.w3.org/2000/svg',
+              'rect',
+            );
+            rect.setAttribute('x', String(Math.min(x1, x2)));
+            rect.setAttribute('y', String(Math.min(y1, y2)));
+            rect.setAttribute('width', String(Math.max(1, Math.abs(x2 - x1))));
+            rect.setAttribute('height', String(Math.max(1, Math.abs(y2 - y1))));
+            rect.classList.add('fill-amber-300/40', 'stroke-amber-600');
+            overlay.append(rect);
+          }
+          container.append(overlay);
+        }
         setRendering(false);
       }
     })().catch(() => {
@@ -93,7 +138,7 @@ export function PdfViewer({ document }: { document: DocumentVersion }) {
       cancelRender?.();
       canvas.remove();
     };
-  }, [pdf, page, zoom, document.filename]);
+  }, [pdf, page, zoom, document.filename, anchor]);
 
   const pages = pdf?.numPages ?? document.pageCount;
   return (
@@ -183,7 +228,10 @@ export function PdfViewer({ document }: { document: DocumentVersion }) {
             </Button>
           </div>
         )}
-        <div ref={surface} className="flex w-max min-w-full justify-center" />
+        <div
+          ref={surface}
+          className="relative flex w-max min-w-full justify-center"
+        />
       </div>
     </section>
   );
