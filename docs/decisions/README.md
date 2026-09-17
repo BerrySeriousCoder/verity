@@ -1,5 +1,7 @@
 # Architecture decision records
 
+[0005 — Next.js, Tailwind, and the upload slice](0005-nextjs-tailwind-and-upload-slice.md): frontend explicitly selected by user; first document feature implemented.
+
 [0004 — Review-only product and monorepo foundation](0004-product-boundary-and-foundation.md): authoritative product boundary and initial development setup; supersedes earlier outbound-action proposals.
 
 [0001 — Exclude OCR and scanned documents from the MVP](0001-mvp-document-scope.md): accepted by user instruction.

@@ -1,5 +1,11 @@
 # Progress journal
 
+## 2026-09-17 — PDF upload and Next.js/Tailwind workspace
+
+Built the first vertical slice: PDF structure validation, immutable original storage, PostgreSQL metadata/migrations, document listing, and a PDF.js viewer with page navigation and zoom. User explicitly selected Tailwind and Next.js during implementation; removed Vite and handwritten styles before committing. Recorded ADR 0005, updated run instructions, and added unit, PostgreSQL integration, and browser tests. Original documents are viewable but not yet extracted or reviewed. Next slice: digital text extraction with stable page/block anchors, then citation navigation.
+
+Validation: five domain tests, six PostgreSQL integration tests, and one end-to-end browser flow passed, alongside formatting, strict types, and the optimized Next.js build. Browser coverage includes actual canvas content, page navigation, zoom, reload persistence, duplicate uploads, invalid-file feedback, and mobile overflow. Applied the initial local database migration. Updated Fastify after a dependency audit; runtime audit reports no known vulnerabilities. CI configuration includes these checks but has not run remotely.
+
 ## 2026-09-17 — Product boundary and repository initialization
 
 User established that review/reporting is the whole product, not a temporary boundary before document correction. Authorized a production-minded monorepo in `project/` and ongoing Git commits; evaluation tooling follows the MVP. Selected TypeScript/pnpm and PostgreSQL with the installed 16-alpine image. Initialized outer Git so documents and code share history. Scaffold validation results will be recorded after checks complete.

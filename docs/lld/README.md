@@ -23,4 +23,6 @@ User clarification adds two priority designs after evidence identity and ingesti
 
 Partial draft available: [review interface: citation resolution and highlighting](09-review-interface.md). This specifies the source-viewer contract early because ingestion must preserve the coordinates and cell identities it requires.
 
+Implemented prerequisite slice: [immutable PDF upload and viewing](01-document-upload.md). This delivers source identity and original rendering, not the full evidence model or citation resolver.
+
 Use the [LLD template](template.md). Drafting a dependent design may reveal a flaw in an earlier one; update the HLD and record the reason instead of treating the order as irreversible.

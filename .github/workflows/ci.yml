@@ -7,6 +7,20 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: verity
+          POSTGRES_PASSWORD: verity_local_only
+          POSTGRES_DB: verity
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd="pg_isready -U verity -d verity"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     defaults:
       run:
         working-directory: project
@@ -22,3 +36,6 @@ jobs:
           cache-dependency-path: project/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm test:integration
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e

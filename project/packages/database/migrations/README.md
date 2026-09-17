@@ -1,1 +1,1 @@
-Reserved for ordered, reviewed migrations. No schema has been created yet.
+Ordered forward migrations. `0001_documents.sql` establishes workspaces and immutable document metadata. Never modify a migration after it has been applied; introduce a new numbered SQL file. The runner verifies stored checksums before applying pending migrations.

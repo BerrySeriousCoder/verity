@@ -2,6 +2,8 @@
 
 Status: Draft — component boundaries proposed; stack not agreed.
 
+Implemented stack update: [ADR 0005](decisions/0005-nextjs-tailwind-and-upload-slice.md) selects Next.js App Router with Tailwind for the frontend and Fastify for the API. PDF upload, PostgreSQL metadata, local immutable storage, and original PDF viewing now work locally. Evidence extraction, agent execution, and review coverage are not implemented yet. Older stack shortlist entries below are historical proposals where superseded.
+
 Foundation update: [ADR 0004](decisions/0004-product-boundary-and-foundation.md) selects a TypeScript/pnpm workspace and PostgreSQL and establishes a review-only product. Outbound execution and approval branches in the initial diagrams below are superseded; the active flow ends with verified findings, batched clarification, and the review report. No source corrections or external actions belong in the implementation. Frameworks and model providers remain open.
 
 Design input: the [correctness failure inventory](05-correctness-failure-modes.md) now expands the requirements around large and heterogeneous document sets. Component LLDs must map applicable failure IDs to explicit handling and acceptance tests. The existing shortlist is provisional until we define the document envelope.

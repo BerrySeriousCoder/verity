@@ -1,2 +1,2 @@
-/** Domain modules will be introduced alongside their reviewed contracts. */
-export {};
+export * from './documents/service.js';
+export * from './documents/types.js';

@@ -6,16 +6,26 @@
     "node": ">=22.20.0 <23"
   },
   "scripts": {
-    "check": "pnpm format:check && pnpm typecheck",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present typecheck",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f postgres"
+    "db:logs": "docker compose logs -f postgres",
+    "dev": "pnpm --parallel --filter @verity/api --filter @verity/web dev",
+    "build": "pnpm --filter @verity/web build",
+    "test": "pnpm --filter @verity/core test",
+    "test:integration": "pnpm --filter @verity/api test:integration",
+    "db:migrate": "pnpm --filter @verity/database migrate",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
-    "typescript": "5.9.3",
-    "prettier": "3.6.2"
+    "@playwright/test": "1.56.1",
+    "@types/node": "22.15.30",
+    "prettier": "3.9.7",
+    "prettier-plugin-tailwindcss": "0.8.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
   }
 }

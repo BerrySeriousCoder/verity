@@ -1,0 +1,18 @@
+{
+  "name": "@verity/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import ../../scripts/load-env.mjs --import tsx src/server.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test:integration": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@fastify/multipart": "10.1.1",
+    "@verity/core": "workspace:*",
+    "@verity/database": "workspace:*",
+    "fastify": "5.12.5",
+    "pdf-lib": "1.17.1"
+  }
+}
