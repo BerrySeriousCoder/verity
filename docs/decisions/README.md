@@ -1,5 +1,7 @@
 # Architecture decision records
 
+[0006 — Gemini SDK and durable evidence review](0006-gemini-and-durable-review.md): provider correction, role boundaries, PostgreSQL checkpoints, and correctness limits.
+
 [0005 — Next.js, Tailwind, and the upload slice](0005-nextjs-tailwind-and-upload-slice.md): frontend explicitly selected by user; first document feature implemented.
 
 [0004 — Review-only product and monorepo foundation](0004-product-boundary-and-foundation.md): authoritative product boundary and initial development setup; supersedes earlier outbound-action proposals.

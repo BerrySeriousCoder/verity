@@ -45,3 +45,15 @@ User emphasized large documents, multiple documents, varied document types, and 
 ## 2026-09-17 — On-demand document workspace clarified
 
 User described repository-style navigation for documents: list, search, read whole files or selected pages/regions, gather context iteratively, plan, act, and verify. Their concrete example is exhaustive final-policy versus quotation comparison across PDFs, sheets, and CSVs. Added the workspace interaction design and separate source/obligation coverage ledgers. Clarified that exhaustive source inspection can be batched without fitting all documents into one context, and that policy-to-quotation comparison differs from checking quotation promises missing from the policy. No tool interfaces are implemented yet.
+
+## 2026-09-17 — Evidence and review implementation
+
+- Added digital PDF region extraction, CSV/XLSX row/cell provenance, durable extraction leases, source navigation and highlighting. Original bytes remain immutable.
+- Selected Gemini with the official Google GenAI SDK after the user's provider correction. Added typed structured responses, independent inventory contexts, deterministic coverage/citation checks and decimal computation.
+- Implemented PostgreSQL review checkpoints, scope clarification, bidirectional inventory, bounded evidence investigation, independent finding verification, cancellation/resume, batched questions, and report export.
+- Added engineering tests for false citations, missed blocks, database isolation, worker lease recovery, and browser evidence navigation. Real Gemini behavior is not yet validated because no local API key is configured.
+- Preserved obligations from both inventory passes by deterministic union; model reconciliation must not silently erase obligations. Fine-grained answer dependency invalidation remains conservative (reverify all findings).
+
+Validation at this milestone: `pnpm check` passed (12 unit tests, strict types, formatting, Next.js production build); all 14 PostgreSQL integration tests and both browser tests passed. Production dependency audit reports no known vulnerabilities after the ExcelJS UUID override. Browser exports include resolved original source excerpts and anchors. Live-model test: not run; `GEMINI_API_KEY` is absent.
+
+Git milestones: `3c5f134` adds the evidence/review backend; `29d953a` adds the review workspace and citation navigation. Next acceptance step: configure the local credential, run `pnpm test:live`, resolve any model-specific failures, and update this record with the actual outcome.

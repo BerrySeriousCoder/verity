@@ -1,6 +1,6 @@
 # Low-level design plan
 
-Status: Planned. These components are not yet fully specified or implemented.
+Status: implementation in progress. The original component breakdown below remains a design roadmap; the implemented runtime contracts are documented in [evidence and durable review](02-evidence-review-runtime.md).
 
 ADR 0004 supersedes the outbound policy/approval/action LLD proposal below: remove external action execution from implementation scope. Design workspace authorization and review-state transitions within their relevant components instead. Evaluation tooling follows the MVP.
 
@@ -23,6 +23,6 @@ User clarification adds two priority designs after evidence identity and ingesti
 
 Partial draft available: [review interface: citation resolution and highlighting](09-review-interface.md). This specifies the source-viewer contract early because ingestion must preserve the coordinates and cell identities it requires.
 
-Implemented prerequisite slice: [immutable PDF upload and viewing](01-document-upload.md). This delivers source identity and original rendering, not the full evidence model or citation resolver.
+Implemented: [immutable PDF upload and viewing](01-document-upload.md), followed by [evidence ingestion and durable review](02-evidence-review-runtime.md). The latter includes digital PDF/CSV/XLSX provenance, citation navigation, Gemini integration, coverage tracking, and review checkpoints. Live-model acceptance is still pending credentials.
 
 Use the [LLD template](template.md). Drafting a dependent design may reveal a flaw in an earlier one; update the HLD and record the reason instead of treating the order as irreversible.

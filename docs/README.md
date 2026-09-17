@@ -1,6 +1,6 @@
 # Verity engineering notebook
 
-Status: design and implementation in progress. The local PDF upload/list/view slice is implemented; agent review, evidence extraction, and citation highlighting remain future work. See [development setup](../project/README.md) and [the first-slice LLD](lld/01-document-upload.md).
+Status: implementation and validation in progress. Digital-document extraction, source highlighting, and the Gemini-backed durable review workflow are implemented. Local parser, database, and browser tests exercise the flow; live Gemini validation is pending credentials. See [development setup](../project/README.md) and [runtime LLD](lld/02-evidence-review-runtime.md).
 
 We will work from requirements to high-level design (HLD), then design each component in detail (LLD) before implementing it. Proposed choices are not agreed decisions.
 
