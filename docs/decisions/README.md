@@ -1,5 +1,7 @@
 # Architecture decision records
 
+[0007 — Prompt-first agent workspace with durable activity](0007-prompt-first-agent-workspace.md): natural-language task entry, persisted event timeline, SSE replay, visible tools, and public progress summaries.
+
 [0006 — Gemini SDK and durable evidence review](0006-gemini-and-durable-review.md): provider correction, role boundaries, PostgreSQL checkpoints, and correctness limits.
 
 [0005 — Next.js, Tailwind, and the upload slice](0005-nextjs-tailwind-and-upload-slice.md): frontend explicitly selected by user; first document feature implemented.

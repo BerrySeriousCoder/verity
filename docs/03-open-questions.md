@@ -2,17 +2,11 @@
 
 Status: Open. Answer incrementally, not in one questionnaire.
 
-## Current discussion
+## Current state
 
-The working interface is a document review workspace with chat, persistent findings, and source inspection. Policy-versus-quotation review is the current motivating workflow. Scope clarification, bidirectional inventories, incremental reading, and independent audit are recorded in ADR 0002; do not reopen them as undecided defaults.
+The implemented interface is a prompt-first document agent with durable activity, persistent findings, conversational clarification, and source inspection. Policy-versus-quotation review is the motivating workflow. Scope clarification, bidirectional inventories, incremental reading, and independent audit are recorded in ADR 0002; batched questions in ADR 0003; the review-only boundary and TypeScript/PostgreSQL foundation in ADR 0004; Next.js/Tailwind in ADR 0005; Gemini in ADR 0006; and the agent-style UI in ADR 0007.
 
-Resolved in ADR 0003: continue independent checks and batch questions after executable work finishes; pause early only for task-wide blockers. Resume affected work after answers, preserving unrelated findings.
-
-Next proposal: define whether the MVP ends with a review report and follow-up clarification, or also edits source documents and performs external actions. This product boundary is not yet accepted.
-
-Resolved: ADR 0004 defines the entire product as review-only, with no source corrections or external actions. Foundation selected during initialization: TypeScript/pnpm and local Docker PostgreSQL. Remaining stack choices include frontend/HTTP frameworks and model providers.
-
-Later: primary language, weekly time, model/hosting budget, and packaging of the reusable core versus application.
+The next design discussion should choose the first evaluation dataset envelope: representative page/row counts, policy complexity, permitted document sources, annotation process, model/cost budget, and what minimum quality makes the MVP credible.
 
 ## Subsequent design discussions
 
@@ -20,8 +14,8 @@ Later: primary language, weekly time, model/hosting budget, and packaging of the
 - What complexity of digital tables belongs in the first acceptance criteria? OCR and scanned documents are excluded from the MVP by user decision.
 - What does source authority mean for this specific workflow, and who defines it?
 - When should missing evidence trigger another search, a question to the user, or abstention?
-- Which actions are automatic, require review, or are prohibited?
+- Which findings require a human domain reviewer before the report can be relied upon operationally?
 - What case sizes and latency targets should we test? The idea's 50–500 pages is a proposed range, not a measured capacity.
 - Does a database workflow suffice for the learning goal, or should durable orchestration itself be a major part of the project?
-- How will source updates invalidate decisions and outstanding approvals?
+- How should a new source version create a new review while keeping old reports and citations inspectable?
 - How do we annotate acceptable alternative citations and genuinely ambiguous outcomes?

@@ -1,10 +1,10 @@
 # Document workspace and exhaustive review
 
-Status: Draft architecture reflecting the user's intended interaction model. Tool names and schemas are illustrative, not implemented APIs.
+Status: Core interaction implemented. The table distinguishes current runtime tools from planned workspace capabilities.
 
 ## Intended model
 
-Agreed review behavior is recorded in [ADR 0002](decisions/0002-review-scope-coverage-and-audit.md): clear tasks proceed automatically; vague tasks receive a concrete scope clarification; general alignment review inventories both sides; inventories are built incrementally and audited by a separate role before comparison. Tool schemas below remain proposals.
+Agreed review behavior is recorded in [ADR 0002](decisions/0002-review-scope-coverage-and-audit.md): clear tasks proceed automatically; vague tasks receive a concrete scope clarification; general alignment review inventories both sides; inventories are built incrementally and audited by a separate role before comparison. [ADR 0007](decisions/0007-prompt-first-agent-workspace.md) records the implemented prompt-first interaction and durable activity stream.
 
 An agent starts with a task and a compact inventory of uploaded documents. It discovers structure, searches, reads selected evidence, follows references, plans and revises its work, performs comparisons/calculations, and verifies the result. It can read a whole document when useful, without receiving every uploaded document in its initial context.
 
@@ -14,15 +14,16 @@ Parsing a source into an addressable representation and loading its contents int
 
 ## Proposed navigation primitives
 
-| Tool | Purpose | Important behavior |
-| --- | --- | --- |
-| `list_documents` | Discover files, formats, roles, versions, sizes, and processing status | Roles can be uncertain; filenames alone do not establish authority |
-| `inspect_document` | Read structure: page count, headings, sections, sheets, extraction gaps | A table of contents is a navigation aid, not proof all content is represented |
-| `search` | Find literal, regex, or semantic matches in a selected scope | Distinguish modes; return stable locations, excerpts, pagination, and search coverage |
-| `read` | Read a document, page range, section, block, table, or cell range | Bounded output with continuation and explicit truncation; preserve headings and units |
-| `view_region` | Inspect original page imagery or a specific region | Return coordinate metadata and neighboring context; cropping can omit qualifications |
-| `follow_reference` | Resolve a clause, appendix, schedule, or external-document reference | Return ambiguous or missing targets explicitly |
-| `calculate` | Compute using typed, source-linked operands | Record currency, units, formula, and rounding |
+| Capability                    | Current status                                     | Purpose and behavior                                                                                              |
+| ----------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Document discovery            | Implemented in task attachment and role resolution | Pin file IDs, formats, names, versions, and extraction status; filenames alone do not establish roles             |
+| `inspect_document`            | Implemented                                        | Return source units, extraction warnings, and bounded structure; it does not prove semantic coverage              |
+| `search`                      | Implemented lexical search                         | Return stable evidence IDs and bounded excerpts; a miss never establishes absence                                 |
+| `read_unit` / `read_evidence` | Implemented                                        | Read a page or sheet-range unit and resolve exact evidence IDs with bounded/paginated output                      |
+| `read_inventory`              | Implemented                                        | Traverse the independently built opposite-side checklist before any `not_found` result                            |
+| Source viewer                 | Implemented UI capability                          | Open original PDF pages or stored sheet rows and highlight the resolved citation                                  |
+| Reference resolver            | Planned                                            | Resolve cross-clause/appendix references as a distinct typed tool; current prompts preserve unresolved references |
+| `calculate`                   | Implemented                                        | Compute with decimal, source-linked operands and record operation provenance                                      |
 
 Search locates content; read retrieves its context. Reading page 5 does not require guessing a search term. Whole-document reads should succeed for suitable sizes; large reads should paginate or process sequentially rather than silently truncate or exceed the model budget.
 

@@ -1,12 +1,12 @@
 # Evidence ingestion and durable review runtime
 
-Status: implemented, engineering validation in progress; live Gemini acceptance pending credentials. Provider: Gemini through the official `@google/genai` SDK (user decision).
+Status: implemented and validated through unit, PostgreSQL, browser, and live Gemini checks. Provider: Gemini through the official `@google/genai` SDK (user decision).
 
 ## Product acceptance path
 
 1. Extract digital PDF text and bounding regions; parse CSV records and XLSX sheet/cell values without OCR or formula execution.
 2. Expose versioned document inspection, bounded reading, search, and original-source highlighting through shared evidence identities.
-3. Accept a task with document roles. Clarify vague scope before detailed review; automatically run clear requests.
+3. Accept one prompt with attached documents. Resolve file roles from the prompt and bounded previews; ask in the conversation when roles or scope are ambiguous, and automatically run clear requests.
 4. Persist incremental source inventories in both directions. A fresh-context auditor independently inspects source units before a deterministic union preserves obligations from both inventories. Only exact duplicates are collapsed.
 5. Match and compare obligations through bounded evidence tools, deterministic calculations, and independent finding verification.
 6. Finish independent checks and batch unresolved questions. Conservatively re-verify findings on answers without relabeling user assertions as documentary proof.
@@ -28,7 +28,9 @@ The runtime controls full-scope inventory progression; the model navigates relat
 
 ## UI and completion
 
-Next.js/Tailwind provides source navigation, task chat, progress, coverage, findings, and batched questions. PDF and sheet views share citation resolution. A report is complete only when required source units and obligations have terminal verified dispositions with no unreported gaps. A completed review may contain discrepancies; user acceptance of a discrepancy does not turn it into alignment.
+Next.js/Tailwind provides a prompt-first agent workspace, durable task history, streamed public progress, expandable model/tool activity, findings, batched questions, and source navigation. PostgreSQL `review_events` are replayed over SSE; a browser refresh does not discard the timeline. PDF and sheet views share citation resolution. A report is complete only when required source units and obligations have terminal verified dispositions with no unreported gaps. A completed review may contain discrepancies; user acceptance of a discrepancy does not turn it into alignment.
+
+The stream exposes concise `publicSummary` text requested from each model call and the actual application tool arguments/results. It does not expose or claim to reconstruct private model chain-of-thought. Structured model results are checkpointed separately and validated before they affect run state.
 
 Engineering tests use generated fixtures and a deterministic model test double to exercise orchestration, not to claim model quality. Live Gemini testing is required before claiming the model-backed flow works. The benchmark/evaluation platform remains post-MVP.
 
@@ -42,4 +44,4 @@ Answers currently invalidate every finding conservatively; reliable fine-grained
 
 ## Validation separation
 
-Generated fixtures and a deterministic model double exercise two-sided inventory, scope pausing, citation fabrication rejection, coverage failure, cancellation, PostgreSQL lease ownership, and browser citation navigation. They are not measurements of real model accuracy. No live-model completion claim is valid until the Gemini credential is configured and that path is exercised.
+Generated fixtures and a deterministic model double exercise two-sided inventory, role and scope pausing, citation fabrication rejection, coverage failure, cancellation, PostgreSQL lease ownership, event replay, and browser citation navigation. They are not measurements of real model accuracy. The live smoke test establishes API/runtime compatibility with Gemini on generated sources; it is not an accuracy benchmark.

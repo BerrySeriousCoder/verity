@@ -1,5 +1,15 @@
 # Progress journal
 
+## 2026-09-20 — Prompt-first agent workspace
+
+Replaced the role-selection dashboard flow with the intended coding-agent interaction: attach documents, describe the task and file roles in one prompt, and observe the run in one durable conversation. The agent now resolves document roles, asks for context or scope only when needed, streams bounded public progress summaries, records actual model steps and tool calls/results, renders findings inline, and opens cited originals in the source inspector. PostgreSQL owns ordered activity events and SSE replays them across reconnects and refreshes. Private model chain-of-thought is not exposed; user-facing summaries and real harness operations are distinct.
+
+Added generic conversational replies for document-role, scope, and batched-finding questions; stop/retry controls; recent task restoration; responsive navigation; and an expandable activity timeline. Fixed a reload race that could clear the saved active task before history loaded. Removed the superseded dashboard components.
+
+Gemini's endpoint rejected the complete Zod-generated JSON Schema for nested review outputs. Added a conservative Gemini schema adapter and retained full application-side Zod parsing as the enforcement boundary. The real Gemini smoke test now completes on generated PDF/quotation sources. Current validation: unit tests, 15 PostgreSQL integration tests, two browser tests, strict type checking, and the live Gemini reviewer/auditor path pass. The browser flow covers upload, prompt submission, streamed progress, tool inspection, findings, citation highlighting, report access, reload recovery, and mobile navigation.
+
+Recorded [ADR 0007](decisions/0007-prompt-first-agent-workspace.md). Next product work is evaluation and larger-document quality measurement after final MVP hardening, not another dashboard workflow.
+
 ## 2026-09-17 — PDF upload and Next.js/Tailwind workspace
 
 Built the first vertical slice: PDF structure validation, immutable original storage, PostgreSQL metadata/migrations, document listing, and a PDF.js viewer with page navigation and zoom. User explicitly selected Tailwind and Next.js during implementation; removed Vite and handwritten styles before committing. Recorded ADR 0005, updated run instructions, and added unit, PostgreSQL integration, and browser tests. Original documents are viewable but not yet extracted or reviewed. Next slice: digital text extraction with stable page/block anchors, then citation navigation.

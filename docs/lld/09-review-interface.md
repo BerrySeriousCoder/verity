@@ -1,6 +1,14 @@
 # Review interface: citation resolution and source highlighting
 
-Status: Draft, partial LLD. Citation navigation is specified below; broader review and approval interactions remain to be designed. No rendering prototype has been tested.
+Status: Prompt-first review interface and citation navigation implemented. Advanced viewer cases listed below remain planned validation.
+
+## Implemented task interaction
+
+The primary screen follows [ADR 0007](../decisions/0007-prompt-first-agent-workspace.md): attach two or more documents, describe their roles and the check in one prompt, and submit. The main timeline then renders durable user messages, short streamed progress summaries, expandable model steps, actual tool calls/results, findings, batched questions, and terminal status. Recent tasks and workspace files remain available in the navigation sidebar.
+
+The browser subscribes to `GET /api/workspaces/:workspaceId/reviews/:runId/events`. PostgreSQL event IDs provide ordering and reconnect cursors; periodic snapshots update the run/report. Events are capped when persisted. The active run ID is stored locally only as a navigation convenience; the database owns the conversation itself. Stop cancels queued/running work, and a refresh replays stored activity.
+
+Model-private reasoning is not a UI artifact. Each structured Gemini response starts with a bounded `publicSummary` intended for the operator. Verity streams that field and exposes real harness operations separately, avoiding a misleading imitation of hidden reasoning.
 
 ## Principle
 

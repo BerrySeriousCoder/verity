@@ -1,6 +1,6 @@
 # Verity engineering notebook
 
-Status: implementation and validation in progress. Digital-document extraction, source highlighting, and the Gemini-backed durable review workflow are implemented. Local parser, database, and browser tests exercise the flow; live Gemini validation is pending credentials. See [development setup](../project/README.md) and [runtime LLD](lld/02-evidence-review-runtime.md).
+Status: document-review MVP implemented and under product validation. Digital-document extraction, prompt-first agent tasks, durable activity streaming, source highlighting, and the Gemini-backed review workflow are implemented. Unit, PostgreSQL, browser, and live Gemini checks exercise the flow. See [development setup](../project/README.md) and [runtime LLD](lld/02-evidence-review-runtime.md).
 
 We will work from requirements to high-level design (HLD), then design each component in detail (LLD) before implementing it. Proposed choices are not agreed decisions.
 
