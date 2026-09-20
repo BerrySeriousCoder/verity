@@ -16,7 +16,7 @@ Status: implemented and validated through unit, PostgreSQL, browser, and live Ge
 
 PostgreSQL stores source extractions, units, blocks, review runs, step checkpoints, findings, questions, messages, and traces. Originals and extraction identities remain immutable. API requests enqueue work; a background worker owns parsing and model execution.
 
-Claim queued work using row locks and a lease token. Heartbeat leases during long work. Every checkpoint commit checks the active lease token and run state, preventing stale workers from committing after reclamation or cancellation. A crash can repeat an uncommitted model call, but committed step output is reused. Bound attempts, context, calls, tokens, and wall time; exhaustion yields an explicit incomplete state.
+Claim queued work using row locks and a lease token. Heartbeat leases during long work. Every checkpoint commit checks the active lease token and run state, preventing stale workers from committing after reclamation or cancellation. A crash can repeat an uncommitted model call, but committed step output is reused. Gemini owns native context and response limits. Verity bounds its deterministic investigation loops and worker execution while recording calls and provider-reported token usage instead of imposing a smaller model token ceiling.
 
 Each source unit has an inventory disposition. Empty/unreadable PDF pages and unsupported workbook content are visible extraction gaps, not evidence of absent clauses. A unit may contain multiple evidence blocks. Inventory records source IDs, atomic obligations, continuation references, and out-of-scope explanations.
 
@@ -31,6 +31,8 @@ The runtime controls full-scope inventory progression; the model navigates relat
 Next.js/Tailwind provides a prompt-first agent workspace, durable task history, streamed public progress, expandable model/tool activity, findings, batched questions, and source navigation. PostgreSQL `review_events` are replayed over SSE; a browser refresh does not discard the timeline. PDF and sheet views share citation resolution. A report is complete only when required source units and obligations have terminal verified dispositions with no unreported gaps. A completed review may contain discrepancies; user acceptance of a discrepancy does not turn it into alignment.
 
 The stream exposes concise `publicSummary` text requested from each model call and the actual application tool arguments/results. It does not expose or claim to reconstruct private model chain-of-thought. Structured model results are checkpointed separately and validated before they affect run state.
+
+The adapter distinguishes completed, incomplete, budget-exhausted, malformed, and provider-error responses. Retryable model interruptions receive one clean step retry. Each attempt has its own activity identity, incomplete calls retain provider-reported usage, and partial structured output never enters a checkpoint.
 
 Engineering tests use generated fixtures and a deterministic model test double to exercise orchestration, not to claim model quality. Live Gemini testing is required before claiming the model-backed flow works. The benchmark/evaluation platform remains post-MVP.
 

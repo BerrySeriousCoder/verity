@@ -1,5 +1,13 @@
 # Progress journal
 
+## 2026-09-20 — Gemini incomplete-response recovery
+
+The first real policy-versus-placement review reached the quotation inventory and then stopped with a generic incomplete structured-response error. The request schema had been accepted and Gemini had streamed a public summary, so this was a terminal response-status failure rather than lack of structured-output support. The old adapter discarded the specific status, did not retry, and omitted failed-call usage.
+
+Removed Verity's 12,000-token per-call output cap and the review-wide application token/call ceilings; Gemini now owns its native model limits. Added typed terminal statuses, one bounded retry for incomplete/budget/transient/malformed responses, separate activity identities per attempt, failed-call usage accounting, and safe worker diagnostics. Partial JSON still fails closed and is never checkpointed.
+
+Validation includes strict type checking, the agent unit suite, and all 16 PostgreSQL integration tests. A controlled Gemini replay using the exact failed 30-row spreadsheet batch passed with 22 obligations, 8 exclusions, 2,531 input tokens, and 2,155 output tokens. This proves the repaired adapter handles that batch; it does not retroactively reveal the old call's unrecorded terminal status.
+
 ## 2026-09-20 — Prompt-first agent workspace
 
 Replaced the role-selection dashboard flow with the intended coding-agent interaction: attach documents, describe the task and file roles in one prompt, and observe the run in one durable conversation. The agent now resolves document roles, asks for context or scope only when needed, streams bounded public progress summaries, records actual model steps and tool calls/results, renders findings inline, and opens cited originals in the source inspector. PostgreSQL owns ordered activity events and SSE replays them across reconnects and refreshes. Private model chain-of-thought is not exposed; user-facing summaries and real harness operations are distinct.
