@@ -219,13 +219,22 @@ export function reviewRepository(pool: Pool) {
     },
     async reserveCall(job: ReviewJob): Promise<void> {
       const result = await pool.query(
-        "UPDATE review_runs SET model_calls=model_calls+1 WHERE id=$1 AND lease_token=$2 AND status='running' AND model_calls<1500 AND input_tokens+output_tokens<5000000 RETURNING id",
+        "UPDATE review_runs SET model_calls=model_calls+1 WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id",
         [job.run.id, job.leaseToken],
       );
       if (!result.rowCount)
-        throw new Error(
-          'Review stopped or model budget exhausted (1,500 calls / 5 million tokens).',
-        );
+        throw new Error('Review stopped or its execution lease was lost.');
+    },
+    async recordModelUsage(
+      job: ReviewJob,
+      usage: { inputTokens: number; outputTokens: number },
+    ): Promise<void> {
+      if (!usage.inputTokens && !usage.outputTokens) return;
+      const result = await pool.query(
+        "UPDATE review_runs SET input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running'",
+        [job.run.id, job.leaseToken, usage.inputTokens, usage.outputTokens],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
     },
     async loadStep<T>(runId: string, key: string): Promise<T | undefined> {
       return (
@@ -241,6 +250,7 @@ export function reviewRepository(pool: Pool) {
       output: unknown,
       role: string,
       usage?: { model: string; inputTokens: number; outputTokens: number },
+      eventCallId = key,
     ): Promise<void> {
       const client = await pool.connect();
       try {
@@ -297,7 +307,7 @@ export function reviewRepository(pool: Pool) {
             [
               job.run.id,
               role === 'tool' ? 'tool_result' : 'step_result',
-              key,
+              eventCallId,
               role === 'tool' ? 'Tool completed' : 'Step completed',
               encoded.length > 120000
                 ? JSON.stringify({
@@ -408,7 +418,7 @@ export function reviewRepository(pool: Pool) {
               [id, workspaceId],
             )
           : await pool.query(
-              "UPDATE review_runs SET status='queued',attempts=0,error=NULL,lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status IN ('failed','cancelled') AND model_calls<1500 AND input_tokens+output_tokens<5000000",
+              "UPDATE review_runs SET status='queued',attempts=0,error=NULL,lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status IN ('failed','cancelled')",
               [id, workspaceId],
             );
       return result.rowCount === 1;

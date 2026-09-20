@@ -48,6 +48,31 @@ export interface ModelResult<T> {
   model: string;
 }
 
+export class ModelResponseError extends Error {
+  readonly retryable: boolean;
+  readonly status: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly model: string;
+
+  constructor(input: {
+    message: string;
+    status: string;
+    retryable: boolean;
+    inputTokens: number;
+    outputTokens: number;
+    model: string;
+  }) {
+    super(input.message);
+    this.name = 'ModelResponseError';
+    this.retryable = input.retryable;
+    this.status = input.status;
+    this.inputTokens = input.inputTokens;
+    this.outputTokens = input.outputTokens;
+    this.model = input.model;
+  }
+}
+
 export interface ReviewModel {
   generate<T>(
     role: 'reviewer' | 'auditor',
@@ -69,10 +94,6 @@ export function geminiModel(
     async generate(role, instruction, input, schema, signal, onProgress) {
       const model = role === 'auditor' ? auditorModel : reviewerModel;
       const prompt = JSON.stringify(input);
-      if (prompt.length > 100_000)
-        throw new Error(
-          'Model context budget exceeded. Read smaller source ranges.',
-        );
       const envelope = z.object({
         publicSummary: z.string().max(600),
         result: schema,
@@ -89,7 +110,6 @@ export function geminiModel(
             mime_type: 'application/json',
             schema: toGeminiSchema(z.toJSONSchema(envelope)),
           },
-          generation_config: { max_output_tokens: 12000 },
         },
         {
           timeout_ms: 120_000,
@@ -104,32 +124,74 @@ export function geminiModel(
       );
       let text = '',
         sent = '',
-        completed = false,
+        terminalStatus = 'stream_ended',
         inputTokens = 0,
         outputTokens = 0;
       for await (const event of stream) {
         signal?.throwIfAborted();
         if (event.event_type === 'step.delta' && event.delta.type === 'text') {
           text += event.delta.text;
-          if (text.length > 200000)
-            throw new Error('Gemini output exceeded the response limit.');
           const summary = publicSummaryPrefix(text);
           if (summary.length >= sent.length + 24) {
             await onProgress?.(summary);
             sent = summary;
           }
+        } else if (event.event_type === 'interaction.status_update') {
+          terminalStatus = event.status;
         } else if (event.event_type === 'interaction.completed') {
-          completed = event.interaction.status === 'completed';
+          terminalStatus = event.interaction.status;
           inputTokens = event.interaction.usage?.total_input_tokens ?? 0;
           outputTokens = event.interaction.usage?.total_output_tokens ?? 0;
-        } else if (event.event_type === 'error')
-          throw new Error('Gemini stream failed. Retry the task.');
+        } else if (event.event_type === 'error') {
+          const code = event.error?.code ?? 'stream_error';
+          throw new ModelResponseError({
+            message: `Gemini stream failed (${code}).`,
+            status: code,
+            retryable: [
+              'api_error',
+              'deadline_exceeded',
+              'rate_limit_exceeded',
+              'service_unavailable',
+              'stream_error',
+              'too_many_requests',
+            ].includes(code),
+            inputTokens,
+            outputTokens,
+            model,
+          });
+        }
       }
-      if (!completed || !text)
-        throw new Error(
-          'Gemini did not produce a complete structured response.',
-        );
-      const parsed = envelope.parse(JSON.parse(text));
+      if (terminalStatus !== 'completed' || !text)
+        throw new ModelResponseError({
+          message:
+            terminalStatus === 'incomplete' ||
+            terminalStatus === 'budget_exceeded'
+              ? 'Gemini exhausted its native response budget before completing the structured result.'
+              : `Gemini ended the structured response with status "${terminalStatus}".`,
+          status: terminalStatus,
+          retryable: [
+            'budget_exceeded',
+            'incomplete',
+            'in_progress',
+            'stream_ended',
+          ].includes(terminalStatus),
+          inputTokens,
+          outputTokens,
+          model,
+        });
+      let parsed: z.infer<typeof envelope>;
+      try {
+        parsed = envelope.parse(JSON.parse(text));
+      } catch {
+        throw new ModelResponseError({
+          message: 'Gemini returned malformed structured output.',
+          status: 'malformed_output',
+          retryable: true,
+          inputTokens,
+          outputTokens,
+          model,
+        });
+      }
       if (parsed.publicSummary !== sent)
         await onProgress?.(parsed.publicSummary);
       return {

@@ -198,7 +198,7 @@ export function registerReviewRoutes(
         ))
           ? { updated: true }
           : reply.code(409).send({
-              message: `This review cannot ${action} in its current state or has exhausted its model budget.`,
+              message: `This review cannot ${action} in its current state.`,
             }),
     );
   app.get<{ Params: RunParams }>(

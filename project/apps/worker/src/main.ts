@@ -140,7 +140,7 @@ async function reviewLoop() {
             error: message.slice(0, 1000),
           })
           .catch(() => undefined);
-        console.error(`Review ${job.run.id} interrupted.`);
+        console.error(`Review ${job.run.id} interrupted: ${message}`);
       } finally {
         clearTimeout(timeout);
         clearInterval(heartbeat);

@@ -12,7 +12,7 @@ import type {
   ReviewRepository,
   ReviewJob,
 } from '@verity/database';
-import type { ReviewModel } from './model.js';
+import { ModelResponseError, type ReviewModel } from './model.js';
 import {
   actionSchema,
   inventorySchema,
@@ -121,22 +121,52 @@ export async function executeReview(
                 : key.startsWith('answers')
                   ? 'Read your clarification'
                   : 'Choose the next evidence check';
+      const attemptCallId = `${key}/attempt-${attempt + 1}`;
       await reviews.emit(
         job,
         'step_start',
         label,
         { role, attempt: attempt + 1 },
-        key,
+        attemptCallId,
       );
-      const result = await model.generate(
-        role,
-        instruction,
-        { input, repair: lastError || null },
-        schema,
-        signal,
-        async (text) =>
-          reviews.emit(job, 'assistant_delta', label, { text, role }, key),
-      );
+      let result;
+      try {
+        result = await model.generate(
+          role,
+          instruction,
+          { input, repair: lastError || null },
+          schema,
+          signal,
+          async (text) =>
+            reviews.emit(
+              job,
+              'assistant_delta',
+              label,
+              { text, role },
+              attemptCallId,
+            ),
+        );
+      } catch (error) {
+        if (error instanceof ModelResponseError) {
+          await reviews.recordModelUsage(job, error);
+          const retrying = error.retryable && attempt === 0;
+          await reviews.emit(
+            job,
+            'step_result',
+            label,
+            { status: error.status, error: error.message, retrying },
+            attemptCallId,
+          );
+          if (retrying) {
+            lastError = error.message;
+            await reviews.emit(job, 'assistant', 'Retrying model step', {
+              text: `${label} was interrupted by Gemini (${error.status}). I’m retrying this step once without discarding completed checkpoints.`,
+            });
+            continue;
+          }
+        }
+        throw error;
+      }
       try {
         validate?.(result.value);
       } catch (error) {
@@ -150,11 +180,19 @@ export async function executeReview(
           { reason: lastError },
           role,
           result,
+          attemptCallId,
         );
         if (attempt === 1) throw error;
         continue;
       }
-      await reviews.saveStep(job, key, result.value, role, result);
+      await reviews.saveStep(
+        job,
+        key,
+        result.value,
+        role,
+        result,
+        attemptCallId,
+      );
       return result.value;
     }
     throw new Error('Structured step validation failed.');

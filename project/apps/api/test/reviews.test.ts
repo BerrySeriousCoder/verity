@@ -109,6 +109,42 @@ test('clear scope produces bidirectional verified findings and durable checkpoin
   await assert.rejects(reviews.saveStep(job, 'late', {}, 'test'), /lease lost/);
 });
 
+test('retries an incomplete model response and accounts for failed-call usage', async () => {
+  const run = await create();
+  const job = await reviews.claim();
+  assert.ok(job);
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: createScriptedModel(policyId, quoteId, evidence, {
+        failOnce: true,
+      }),
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.status, 'completed');
+  assert.ok((detail?.run.inputTokens ?? 0) >= 7);
+  assert.ok((detail?.run.outputTokens ?? 0) >= 11);
+  const events = await reviews.events(LOCAL_WORKSPACE_ID, run.id);
+  assert.ok(
+    events.some(
+      (event) =>
+        event.kind === 'step_result' &&
+        event.data['status'] === 'incomplete' &&
+        event.data['retrying'] === true,
+    ),
+  );
+  assert.ok(
+    events.some(
+      (event) =>
+        event.kind === 'assistant' && event.title === 'Retrying model step',
+    ),
+  );
+});
+
 test('vague requests pause for scope and resume without repeating the saved proposal', async () => {
   const run = await create();
   const job = await reviews.claim();

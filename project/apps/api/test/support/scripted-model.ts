@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { EvidenceRepository } from '@verity/database';
 import { LOCAL_WORKSPACE_ID } from '@verity/database';
-import type { ReviewModel } from '@verity/agent';
+import { ModelResponseError, type ReviewModel } from '@verity/agent';
 export function scriptedModel(
   policyId: string,
   quoteId: string,
@@ -12,10 +12,23 @@ export function scriptedModel(
     invalidCitation?: boolean;
     omitBlock?: boolean;
     withQuestions?: boolean;
+    failOnce?: boolean;
   } = {},
 ): ReviewModel {
+  let failurePending = options.failOnce ?? false;
   return {
     async generate(role, instruction, raw, schema, _signal, onProgress) {
+      if (failurePending) {
+        failurePending = false;
+        throw new ModelResponseError({
+          message: 'Test model response was incomplete.',
+          status: 'incomplete',
+          retryable: true,
+          inputTokens: 7,
+          outputTokens: 11,
+          model: 'test-double',
+        });
+      }
       const input = (raw as { input: Record<string, unknown> }).input;
       let value: unknown;
       await onProgress?.(
