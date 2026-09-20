@@ -9,20 +9,18 @@ Use Node 22.20.x (or a later Node 22 release), pnpm 10.8.0, and Docker.
 ```sh
 cd project
 pnpm install --frozen-lockfile
-pnpm db:up
-pnpm db:migrate
 cp -n .env.example .env
 # Set GEMINI_API_KEY in .env before starting model-backed reviews.
 pnpm dev
 ```
 
-Open **http://127.0.0.1:3000**. Next.js serves the workspace and forwards `/api` to the local Fastify API on port 3001. The API and frontend bind to localhost; a background worker handles extraction and reviews. Upload digital PDFs, UTF-8 comma-separated CSVs, or XLSX files up to 20 MiB, attach at least two files, and explain the task and document roles in the prompt. Verity resolves the roles, shows durable model/tool activity while it works, and asks in the same conversation when roles, scope, or evidence need clarification. Findings link to PDF regions or spreadsheet rows. Original files are never edited.
+`pnpm dev` starts PostgreSQL through Docker Compose, waits for its health check, applies pending migrations, and then starts the API, worker, and Next.js app. Open **http://127.0.0.1:3000**. Next.js serves the workspace and forwards `/api` to the local Fastify API on port 3001. The API and frontend bind to localhost; a background worker handles extraction and reviews. Upload digital PDFs, UTF-8 comma-separated CSVs, or XLSX files up to 20 MiB, attach at least two files, and explain the task and document roles in the prompt. Verity resolves the roles, shows durable model/tool activity while it works, and asks in the same conversation when roles, scope, or evidence need clarification. Findings link to PDF regions or spreadsheet rows. Original files are never edited.
 
 The API seeds one local workspace after explicit migrations. Identical bytes reuse a document record within that workspace; different bytes with the same filename get a new identity. Document metadata lives in PostgreSQL; original bytes live in ignored `project/.data/blobs/`.
 
 Docker Compose uses `postgres:16-alpine`, a named volume, and `127.0.0.1:55432`. Database/user: `verity`; local password: `verity_local_only`. Copy `.env.example` to `.env` for overrides; the API, worker, and migration commands load that file. Restart the app after changing environment settings. Keep `DATABASE_URL` consistent with any changed Compose settings. These credentials are local defaults, not production secrets.
 
-`pnpm db:down` stops PostgreSQL without deleting its volume. Stop `pnpm dev` with Ctrl+C. Preserve both the database and blob directory to retain uploads. No garbage collection or destructive reset command is provided.
+`pnpm db:down` stops PostgreSQL without deleting its volume. Stop `pnpm dev` with Ctrl+C; PostgreSQL remains available for the next run. `pnpm dev:apps` starts only the application processes when the database is already managed separately. Preserve both the database and blob directory to retain uploads. No garbage collection or destructive reset command is provided.
 
 ## Boundaries
 
