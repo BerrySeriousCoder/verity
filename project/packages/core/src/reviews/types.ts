@@ -2,6 +2,7 @@ export type ReviewStatus =
   | 'queued'
   | 'running'
   | 'needs_scope'
+  | 'needs_context'
   | 'needs_input'
   | 'completed'
   | 'failed'
@@ -19,6 +20,12 @@ export interface ReviewRun {
   policyId: string;
   quotationIds: string[];
   task: string;
+  rolesResolved: boolean;
+  messages: {
+    text: string;
+    purpose: 'context' | 'scope' | 'answers';
+    revision: number;
+  }[];
   scope: ReviewScope | null;
   status: ReviewStatus;
   phase: string;
@@ -32,6 +39,24 @@ export interface ReviewRun {
   auditorModel: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReviewEvent {
+  id: string;
+  runId: string;
+  kind:
+    | 'user'
+    | 'assistant'
+    | 'assistant_delta'
+    | 'tool_start'
+    | 'tool_result'
+    | 'step_start'
+    | 'step_result'
+    | 'status';
+  callId: string | null;
+  title: string;
+  data: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface ReviewFinding {

@@ -10,12 +10,13 @@ import {
   databaseUrl,
   documentRepository,
   evidenceRepository,
+  reviewRepository,
   ensureLocalWorkspace,
   LOCAL_WORKSPACE_ID,
   migrate,
 } from '@verity/database';
 import { MAX_PDF_BYTES } from '@verity/core';
-import type { DocumentVersion } from '@verity/core';
+import type { DocumentVersion, ReviewRun } from '@verity/core';
 import { buildApp } from '../src/app.js';
 import { localBlobStore } from '../src/adapters/local-blobs.js';
 import { pdfInspector } from '../src/adapters/pdf-inspector.js';
@@ -66,6 +67,7 @@ before(async () => {
   app = await buildApp({
     repository: documentRepository(pool),
     evidence: evidenceRepository(pool),
+    reviews: reviewRepository(pool),
     blobs: localBlobStore(directory),
     inspector: pdfInspector,
     workspaceId: LOCAL_WORKSPACE_ID,
@@ -364,4 +366,53 @@ test('expired extraction leases can be reclaimed without accepting old worker re
     (await evidence.inspect(LOCAL_WORKSPACE_ID, resumed.documentId))?.status,
     'queued',
   );
+});
+
+test('prompt-first conversations pin attached documents and persist messages as events', async () => {
+  const documents = await documentRepository(pool).list(
+    LOCAL_WORKSPACE_ID,
+    10,
+    0,
+  );
+  assert.ok(documents.length >= 2);
+  const previous = process.env['GEMINI_API_KEY'];
+  process.env['GEMINI_API_KEY'] = 'integration-placeholder';
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${LOCAL_WORKSPACE_ID}/conversations`,
+      payload: {
+        task: `${documents[0]!.filename} is the policy and ${documents[1]!.filename} is the quotation. Compare limits.`,
+        documentIds: [documents[0]!.id, documents[1]!.id],
+      },
+    });
+    assert.equal(response.statusCode, 201, response.body);
+    const run = response.json<{ run: ReviewRun }>().run;
+    assert.equal(run.rolesResolved, false);
+    const repository = reviewRepository(pool);
+    const events = await repository.events(LOCAL_WORKSPACE_ID, run.id);
+    assert.equal(events[0]?.kind, 'user');
+    assert.match(String(events[0]?.data['text']), /quotation/);
+    await pool.query(
+      "UPDATE review_runs SET status='needs_context' WHERE id=$1",
+      [run.id],
+    );
+    const message = await app.inject({
+      method: 'POST',
+      url: `/api/workspaces/${LOCAL_WORKSPACE_ID}/reviews/${run.id}/messages`,
+      payload: { text: 'The first attached file is the policy.' },
+    });
+    assert.equal(message.statusCode, 200, message.body);
+    const detail = await repository.detail(LOCAL_WORKSPACE_ID, run.id);
+    assert.equal(detail?.run.status, 'queued');
+    assert.equal(detail?.run.messages.at(-1)?.purpose, 'context');
+    assert.equal(
+      (await repository.events(LOCAL_WORKSPACE_ID, run.id, events[0]!.id))[0]
+        ?.kind,
+      'user',
+    );
+  } finally {
+    if (previous === undefined) delete process.env['GEMINI_API_KEY'];
+    else process.env['GEMINI_API_KEY'] = previous;
+  }
 });

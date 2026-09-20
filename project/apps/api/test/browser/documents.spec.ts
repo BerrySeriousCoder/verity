@@ -28,14 +28,13 @@ const pool = new Pool({
   connectionString,
   options: `-c search_path=${schema}`,
 });
+const evidence = evidenceRepository(pool),
+  reviews = reviewRepository(pool);
 let app: Awaited<ReturnType<typeof buildApp>>;
 let directory: string;
-const evidence = evidenceRepository(pool);
-const reviews = reviewRepository(pool);
 const previousKey = process.env['GEMINI_API_KEY'];
 
 test.beforeAll(async () => {
-  // The browser suite executes a deterministic test model, never an external API.
   process.env['GEMINI_API_KEY'] = 'browser-test-placeholder';
   await admin.query(`CREATE SCHEMA ${schema}`);
   await migrate(pool);
@@ -65,189 +64,123 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
-test('uploads, renders, navigates, zooms, persists, and handles upload errors', async ({
+test('prompt-first agent streams activity, exposes tools, and opens cited originals', async ({
   page,
 }, testInfo) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  const browserErrors: string[] = [];
+  page.on('pageerror', (error) => browserErrors.push(error.message));
   await page.goto('/');
   await expect(
-    page.getByRole('button', { name: '+ Upload document' }),
-  ).toBeEnabled();
-  await expect(
-    page.getByRole('heading', { name: 'Your documents, in focus.' }),
+    page.getByRole('heading', { name: 'What should we check?' }),
   ).toBeVisible();
-  await page.screenshot({
-    path: testInfo.outputPath('empty-workspace.png'),
-    fullPage: true,
-  });
+  await expect(page.getByLabel('Attach documents')).toBeEnabled();
 
   const pdf = await PDFDocument.create();
-  const first = pdf.addPage([560, 720]);
-  first.drawText('Sample policy', { x: 48, y: 650, size: 24 });
-  first.drawText('Flood extension limit 1250.', { x: 48, y: 600, size: 14 });
-  const second = pdf.addPage([560, 720]);
-  second.drawText('Policy conditions', { x: 48, y: 650, size: 24 });
-  const buffer = Buffer.from(await pdf.save());
-  const upload = {
-    name: 'sample-policy.pdf',
-    mimeType: 'application/pdf',
-    buffer,
-  };
-  await page.getByLabel('Choose document').setInputFiles(upload);
-  const canvas = page.getByRole('img', { name: 'Page 1 of sample-policy.pdf' });
-  await expect(canvas).toBeVisible();
-  const extractionJob = await evidence.claimExtraction();
-  expect(extractionJob).toBeTruthy();
-  if (!extractionJob) throw new Error('Expected extraction job');
-  await evidence.complete(extractionJob, await extractDocument(buffer, 'pdf'));
-  await page
-    .getByRole('button', { name: /Flood extension limit 1250/ })
-    .click();
-  await expect(page.getByLabel('Cited evidence highlight')).toBeVisible();
-  // Confirm rendering paints content rather than merely mounting an empty canvas.
-  expect(
-    await canvas.evaluate((element) => {
-      const data = (element as HTMLCanvasElement)
-        .getContext('2d')
-        ?.getImageData(0, 0, 560, 150).data;
-      return (
-        data &&
-        Array.from(data).some((value, index) => index % 4 !== 3 && value < 150)
-      );
-    }),
-  ).toBeTruthy();
-  await page.getByRole('button', { name: 'Next page' }).click();
+  pdf.addPage([560, 720]).drawText('Policy: flood extension limit 1250.', {
+    x: 48,
+    y: 650,
+    size: 16,
+  });
+  const policyBytes = Buffer.from(await pdf.save());
+  const quoteBytes = Buffer.from('Coverage,Limit\nFlood extension,1250');
+  await page.getByLabel('Attach documents').setInputFiles([
+    {
+      name: 'final-policy.pdf',
+      mimeType: 'application/pdf',
+      buffer: policyBytes,
+    },
+    { name: 'quotation.csv', mimeType: 'text/csv', buffer: quoteBytes },
+  ]);
   await expect(
-    page.getByRole('img', { name: 'Page 2 of sample-policy.pdf' }),
+    page.getByText('final-policy.pdf', { exact: true }).last(),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Zoom in' }).click();
-  await expect(page.getByText('125%', { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('img', { name: 'Page 2 of sample-policy.pdf' }),
+    page.getByText('quotation.csv', { exact: true }).last(),
+  ).toBeVisible();
+
+  for (const [format, bytes] of [
+    ['pdf', policyBytes],
+    ['csv', quoteBytes],
+  ] as const) {
+    const job = await evidence.claimExtraction();
+    expect(job).toBeTruthy();
+    if (!job) throw new Error('Expected extraction job');
+    await evidence.complete(job, await extractDocument(bytes, format));
+  }
+
+  await page
+    .getByLabel('Message Verity')
+    .fill(
+      'final-policy.pdf is the final policy. quotation.csv is the quotation. Compare the flood extension limit in both directions and cite both files.',
+    );
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(
+    page.getByText(/final-policy\.pdf is the final policy/),
+  ).toBeVisible();
+
+  const run = await reviews.claim();
+  expect(run).toBeTruthy();
+  if (!run) throw new Error('Expected review job');
+  const files = await documentRepository(pool).list(LOCAL_WORKSPACE_ID, 10, 0);
+  const policy = files.find((file) => file.filename === 'final-policy.pdf');
+  const quote = files.find((file) => file.filename === 'quotation.csv');
+  expect(policy).toBeTruthy();
+  expect(quote).toBeTruthy();
+  if (!policy || !quote) throw new Error('Fixtures missing');
+  await executeReview(
+    run,
+    { reviews, evidence, model: scriptedModel(policy.id, quote.id, evidence) },
+    new AbortController().signal,
+  );
+
+  await expect(
+    page
+      .getByText(
+        'Inspecting the supplied evidence before choosing the next step.',
+      )
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByText(/Finished checking/)).toBeVisible();
+  await expect(
+    page.getByText('Flood limit', { exact: true }).first(),
+  ).toBeVisible();
+  const activity = page
+    .locator('details')
+    .filter({ hasText: /inspect_document|read_unit/ })
+    .first();
+  await activity.click();
+  await expect(activity.getByText('INPUT')).toBeVisible();
+  await page.getByRole('button', { name: 'Source 1 ↗' }).first().click();
+  await expect(
+    page.getByRole('complementary', { name: 'Source inspector' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Cited evidence highlight')).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Download report with evidence' }),
   ).toBeVisible();
   await page.screenshot({
-    path: testInfo.outputPath('pdf-workspace.png'),
+    path: testInfo.outputPath('agent-workspace.png'),
     fullPage: true,
   });
-
   await page.reload();
+  await expect(page.getByText(/Finished checking/)).toBeVisible();
   await expect(
-    page.getByRole('img', { name: 'Page 1 of sample-policy.pdf' }),
+    page.getByText('Flood limit', { exact: true }).first(),
   ).toBeVisible();
-  await page.getByLabel('Choose document').setInputFiles(upload);
-  await expect(
-    page.getByRole('status').filter({ hasText: 'is ready to view' }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: /PDF sample-policy.pdf/ }),
-  ).toHaveCount(1);
+  expect(browserErrors).toEqual([]);
+});
 
-  await page.getByLabel('Choose document').setInputFiles({
-    name: 'invalid.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from('Not a PDF'),
-  });
-  await expect(
-    page.getByRole('alert').filter({ hasText: 'valid PDF' }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: '+ Upload document' }),
-  ).toBeEnabled();
+test('agent workspace remains usable on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await expect(page.getByLabel('Message Verity')).toBeVisible();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Document workspace' }),
+    page.getByRole('complementary', { name: 'Task navigation' }),
   ).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
-  expect(errors).toEqual([]);
-});
-
-test('CSV navigation and review findings open original evidence', async ({
-  page,
-}, testInfo) => {
-  await page.goto('/');
-  const csv = Buffer.from('Coverage,Limit\nFlood extension,1250');
-  await expect(
-    page.getByRole('button', { name: '+ Upload document' }),
-  ).toBeEnabled();
-  await page.getByLabel('Choose document').setInputFiles({
-    name: 'quotation.csv',
-    mimeType: 'text/csv',
-    buffer: csv,
-  });
-  await expect(
-    page.getByRole('heading', { name: 'quotation.csv', exact: true }),
-  ).toBeVisible();
-  const job = await evidence.claimExtraction();
-  expect(job).toBeTruthy();
-  if (!job) throw new Error('Expected CSV extraction');
-  await evidence.complete(job, await extractDocument(csv, 'csv'));
-  await expect(
-    page.getByRole('cell', { name: '1250', exact: true }),
-  ).toBeVisible();
-  const documents = await documentRepository(pool).list(
-    LOCAL_WORKSPACE_ID,
-    100,
-    0,
-  );
-  const policy = documents.find((document) => document.format === 'pdf');
-  expect(policy).toBeTruthy();
-  if (!policy) throw new Error('Expected policy');
-  await page.getByLabel('Policy document').selectOption(policy.id);
-  await page.getByRole('checkbox', { name: 'quotation.csv' }).check();
-  await page
-    .getByLabel('What should we check?')
-    .fill('Compare flood extension limits in both directions.');
-  await page.getByRole('button', { name: 'Start review', exact: true }).click();
-  await expect(page.getByLabel('Review history')).toBeVisible();
-  const reviewJob = await reviews.claim();
-  expect(reviewJob).toBeTruthy();
-  if (!reviewJob) throw new Error('Expected review job');
-  await executeReview(
-    reviewJob,
-    {
-      reviews,
-      evidence,
-      model: scriptedModel(policy.id, job.documentId, evidence),
-    },
-    new AbortController().signal,
-  );
-  await expect(
-    page.getByText('All checks have verified dispositions'),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Source 1 ↗' }).first().click();
-  await expect(page.getByLabel('Cited evidence highlight')).toBeVisible();
-  await page.screenshot({
-    path: testInfo.outputPath('review-with-evidence.png'),
-    fullPage: true,
-  });
-  await page.reload();
-  await expect(
-    page.getByText('All checks have verified dispositions'),
-  ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Export report' })).toBeVisible();
-  const response = await page.request.get(
-    `/api/workspaces/${LOCAL_WORKSPACE_ID}/reviews/${reviewJob.run.id}/report`,
-  );
-  expect(response.ok()).toBe(true);
-  const report = (await response.json()) as {
-    citations: { text: string; documentId: string; anchor: { kind: string } }[];
-  };
-  expect(
-    report.citations.some(
-      (citation) =>
-        citation.documentId === policy.id && citation.anchor.kind === 'pdf',
-    ),
-  ).toBe(true);
-  expect(
-    report.citations.some(
-      (citation) =>
-        citation.documentId === job.documentId &&
-        citation.anchor.kind === 'sheet',
     ),
   ).toBe(true);
 });

@@ -26,6 +26,24 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  conversation: (workspaceId: string, task: string, documentIds: string[]) =>
+    request<{ run: ReviewRun }>(
+      `/api/workspaces/${workspaceId}/conversations`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task, documentIds }),
+      },
+    ),
+  message: (workspaceId: string, id: string, text: string) =>
+    request<{ queued: boolean }>(
+      `/api/workspaces/${workspaceId}/reviews/${id}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      },
+    ),
   reviews: (workspaceId: string) =>
     request<{ runs: ReviewRun[] }>(`/api/workspaces/${workspaceId}/reviews`),
   review: (workspaceId: string, id: string) =>

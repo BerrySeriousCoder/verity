@@ -1,4 +1,5 @@
-import type { z } from 'zod';
+import { z } from 'zod';
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
   EvidenceBlock,
   ExtractionSummary,
@@ -37,14 +38,55 @@ export async function executeReview(
   const { reviews, evidence, model } = dependencies;
   const run = job.run;
   const documentIds = [run.policyId, ...run.quotationIds];
+  await reviews.emit(job, 'assistant', 'Working', {
+    text: run.revision
+      ? 'I’m continuing with your clarification and checking the affected conclusions again.'
+      : 'I’ll inspect the attached files, establish what to compare, and check the evidence in both directions.',
+  });
   const sources: ExtractionSummary[] = [];
   for (const id of documentIds) {
-    const source = await evidence.inspect(run.workspaceId, id);
+    const callId = `inspect/${id}/${job.leaseToken}`;
+    await reviews.emit(
+      job,
+      'tool_start',
+      'inspect_document',
+      { documentId: id },
+      callId,
+    );
+    let source = await evidence.inspect(run.workspaceId, id);
+    if (source && ['queued', 'running'].includes(source.status)) {
+      await reviews.emit(job, 'assistant', 'Preparing file', {
+        text: `Waiting for ${source.filename} to finish text extraction.`,
+      });
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (
+        source &&
+        ['queued', 'running'].includes(source.status) &&
+        Date.now() < deadline
+      ) {
+        await delay(1000, undefined, { signal });
+        source = await evidence.inspect(run.workspaceId, id);
+      }
+    }
     if (!source || source.status !== 'ready')
       throw new Error(
         'A selected document is not ready. Wait for extraction, resolve any source errors, then retry this review.',
       );
     sources.push(source);
+    await reviews.emit(
+      job,
+      'tool_result',
+      'inspect_document',
+      {
+        documentId: id,
+        filename: source.filename,
+        status: source.status,
+        units: source.units.slice(0, 30),
+        totalUnits: source.units.length,
+        warnings: source.warnings,
+      },
+      callId,
+    );
   }
 
   async function call<T>(
@@ -66,12 +108,34 @@ export async function executeReview(
     for (let attempt = 0; attempt < 2; attempt++) {
       signal.throwIfAborted();
       await reviews.reserveCall(job);
+      const label = key.startsWith('scope')
+        ? 'Plan the review'
+        : key.startsWith('roles')
+          ? 'Identify attached documents'
+          : key.startsWith('inventory')
+            ? 'Extract source obligations'
+            : key.startsWith('audit')
+              ? 'Independently audit coverage'
+              : key.startsWith('verify')
+                ? 'Verify cited evidence'
+                : key.startsWith('answers')
+                  ? 'Read your clarification'
+                  : 'Choose the next evidence check';
+      await reviews.emit(
+        job,
+        'step_start',
+        label,
+        { role, attempt: attempt + 1 },
+        key,
+      );
       const result = await model.generate(
         role,
         instruction,
         { input, repair: lastError || null },
         schema,
         signal,
+        async (text) =>
+          reviews.emit(job, 'assistant_delta', label, { text, role }, key),
       );
       try {
         validate?.(result.value);
@@ -100,33 +164,161 @@ export async function executeReview(
     const result: EvidenceBlock[] = [];
     for (let offset = 0; ; offset += 100) {
       signal.throwIfAborted();
+      const callId = `read/${unitId}/${offset}/${job.leaseToken}`;
+      const label = sources
+        .flatMap((source) => source.units)
+        .find((unit) => unit.id === unitId)?.label;
+      await reviews.emit(
+        job,
+        'tool_start',
+        'read_unit',
+        { unitId, label, offset, limit: 100 },
+        callId,
+      );
       const batch = await evidence.blocks(run.workspaceId, unitId, offset, 100);
+      await reviews.emit(
+        job,
+        'tool_result',
+        'read_unit',
+        { blocks: batch, hasMore: batch.length === 100 },
+        callId,
+      );
       result.push(...batch);
       if (batch.length < 100) return result;
     }
   }
 
+  const previews = [];
+  for (const source of sources) {
+    const unit = source.units[0];
+    previews.push({
+      documentId: source.documentId,
+      filename: source.filename,
+      units: source.units.length,
+      preview: unit
+        ? (await evidence.blocks(run.workspaceId, unit.id, 0, 3)).map(
+            (block) => ({ id: block.id, text: block.text.slice(0, 500) }),
+          )
+        : [],
+    });
+  }
+  if (!run.rolesResolved) {
+    const roleSchema = z.object({
+      policyId: z.string().uuid().nullable(),
+      quotationIds: z.array(z.string().uuid()).max(30),
+      question: z.string().max(1000).nullable(),
+    });
+    const roles = await call(
+      `roles/revision-${run.revision}`,
+      'reviewer',
+      'Identify the policy and quotation/supporting files from the user prompt, filenames, and source previews. All attached files must be assigned exactly once. Do not assume upload order defines roles. If the task or file roles are ambiguous, return policyId=null and ask one concise question. This app checks documents; it does not rewrite them.',
+      { task: run.task, messages: run.messages, sources: previews },
+      roleSchema,
+      (value) => {
+        if (!value.policyId) return;
+        const ids = [value.policyId, ...value.quotationIds];
+        if (
+          ids.length !== documentIds.length ||
+          new Set(ids).size !== ids.length ||
+          ids.some((id) => !documentIds.includes(id))
+        )
+          throw new Error(
+            'Assign every attached file exactly once using its actual document ID.',
+          );
+      },
+    );
+    if (!roles.policyId) {
+      const question =
+        roles.question ||
+        'Which attached file is the policy, and which files should I compare it against?';
+      await reviews.emit(job, 'assistant', 'Question', { text: question });
+      await reviews.finish(
+        job,
+        'needs_context',
+        'Waiting for document context',
+      );
+      return;
+    }
+    await reviews.assignRoles(job, roles.policyId, roles.quotationIds);
+    await reviews.emit(job, 'assistant', 'Documents identified', {
+      text: `I’ll treat ${sources.find((source) => source.documentId === roles.policyId)?.filename} as the policy and compare it against ${sources
+        .filter((source) => roles.quotationIds.includes(source.documentId))
+        .map((source) => source.filename)
+        .join(', ')}.`,
+    });
+  }
+
+  const latestMessage = run.messages.at(-1);
+  if (
+    latestMessage?.purpose === 'answers' &&
+    latestMessage.revision === run.revision
+  ) {
+    const previous = await reviews.detail(run.workspaceId, run.id);
+    const pending =
+      previous?.report?.findings.filter((finding) => finding.question) ?? [];
+    const mapped = await call(
+      `answers/revision-${run.revision}`,
+      'reviewer',
+      'Match the user reply to the pending questions. Return only answers actually supplied, as exact verbatim substrings of the user reply. Do not invent answers, reinterpret acceptance as documentary evidence, or change the agreed task scope.',
+      {
+        reply: latestMessage.text,
+        questions: pending.map((finding) => ({
+          id: finding.id,
+          question: finding.question,
+        })),
+      },
+      z.object({
+        answers: z
+          .array(
+            z.object({ id: z.string(), quote: z.string().min(1).max(3000) }),
+          )
+          .max(100),
+      }),
+      (value) => {
+        if (
+          value.answers.some(
+            (answer) =>
+              !pending.some((finding) => finding.id === answer.id) ||
+              !latestMessage.text.includes(answer.quote),
+          )
+        )
+          throw new Error(
+            'Answers must quote the user and refer to pending question IDs.',
+          );
+      },
+    );
+    if (!mapped.answers.length) {
+      await reviews.emit(job, 'assistant', 'Clarification needed', {
+        text: 'I couldn’t match that reply to an open question. Please name the item you mean and provide the clarification; the unresolved findings remain unchanged.',
+      });
+      await reviews.finish(job, 'needs_input', 'Waiting for clarification');
+      return;
+    }
+    await reviews.applyAnswers(
+      job,
+      Object.fromEntries(
+        mapped.answers.map((answer) => [answer.id, answer.quote]),
+      ),
+    );
+  }
+
   let scope: ReviewScope;
   if (run.scope?.confirmed) scope = run.scope;
   else {
-    const previews = [];
-    for (const source of sources) {
-      const unit = source.units[0];
-      previews.push({
-        documentId: source.documentId,
-        units: source.units.length,
-        preview: unit
-          ? (await evidence.blocks(run.workspaceId, unit.id, 0, 8)).map(
-              (block) => ({ id: block.id, text: block.text.slice(0, 1500) }),
-            )
-          : [],
-      });
-    }
     const proposal = await call(
-      'scope',
+      latestMessage?.purpose === 'scope'
+        ? `scope/revision-${run.revision}`
+        : 'scope',
       'reviewer',
       'Propose the scope of a bidirectional policy-versus-quotation comparison. A vague request such as "check these documents" requires clarification; a clear list of checks can proceed. Discover likely categories from source previews, but do not imply the previews cover the documents. Never decide actual alignment here.',
-      { task: run.task, sources: previews },
+      {
+        task: run.task,
+        sources: previews,
+        previousProposal: run.scope,
+        messages: run.messages,
+        instruction:
+          'When the user explicitly accepts a previous proposal, proceed with it. Apply explicit scope changes before beginning the checks.',
+      },
       scopeSchema,
     );
     scope = {
@@ -135,12 +327,18 @@ export async function executeReview(
       confirmed: !proposal.needsClarification,
     };
     if (!scope.confirmed) {
+      await reviews.emit(job, 'assistant', 'Proposed scope', {
+        text: `I propose checking ${scope.categories.join(', ')} in both directions. ${scope.description}\n\nDoes that cover what you want, or should I change the scope?`,
+      });
       await reviews.finish(job, 'needs_scope', 'Confirm review scope', {
         scope,
       });
       return;
     }
   }
+  await reviews.emit(job, 'assistant', 'Plan', {
+    text: `I’ll check ${scope.categories.join(', ')}. First I’ll build a checklist from each document, then independently audit coverage, compare the items, and verify each finding against its citations.`,
+  });
 
   const inventory: Obligation[] = [];
   const limitations = [
@@ -351,6 +549,15 @@ export async function executeReview(
         break;
       }
       let result: unknown;
+      const toolKey = `tool/${obligation.id}/revision-${run.revision}/${step}`;
+      const toolCallId = `${toolKey}/${job.leaseToken}`;
+      await reviews.emit(
+        job,
+        'tool_start',
+        action.action,
+        { arguments: action },
+        toolCallId,
+      );
       if (action.action === 'search' && action.query?.trim()) {
         const matches = await evidence.search(
           run.workspaceId,
@@ -479,6 +686,13 @@ export async function executeReview(
         { action, result },
         'tool',
       );
+      await reviews.emit(
+        job,
+        'tool_result',
+        action.action,
+        { output: result },
+        toolCallId,
+      );
       history.push({ action, result });
     }
     final ??= {
@@ -497,6 +711,7 @@ export async function executeReview(
       userAnswer: run.answers[obligation.id] ?? null,
     };
     await reviews.saveStep(job, findingKey, final, 'harness');
+    await reviews.emit(job, 'assistant', 'Finding', { finding: final });
     findings.push(final);
     const partial: ReviewReport = {
       findings: [...findings],
@@ -535,6 +750,23 @@ export async function executeReview(
     limitations,
     complete,
   };
+  await reviews.emit(job, 'assistant', 'Review summary', {
+    text: complete
+      ? `Finished checking ${findings.length} items against the source documents. ${findings.filter((finding) => finding.status === 'different').length} have verified differences.`
+      : `I’ve finished the independent checks. ${findings.filter((finding) => !finding.verified).length} items remain unverified; I’m keeping those separate from supported findings.`,
+    complete,
+  });
+  if (needsInput)
+    await reviews.emit(job, 'assistant', 'Questions', {
+      text: 'I have a few questions after completing the independent checks. Reply here with the item names and any clarification you can provide.',
+      questions: findings
+        .filter((finding) => finding.question && !run.answers[finding.id])
+        .map((finding) => ({
+          id: finding.id,
+          title: finding.title,
+          question: finding.question,
+        })),
+    });
   await reviews.finish(
     job,
     needsInput ? 'needs_input' : 'completed',

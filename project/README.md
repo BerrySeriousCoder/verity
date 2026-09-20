@@ -16,7 +16,7 @@ cp -n .env.example .env
 pnpm dev
 ```
 
-Open **http://127.0.0.1:3000**. Next.js serves the workspace and forwards `/api` to the local Fastify API on port 3001. The API and frontend bind to localhost; a background worker handles extraction and reviews. Upload digital PDFs, UTF-8 comma-separated CSVs, or XLSX files up to 20 MiB. Wait for extraction, choose a policy and quotation documents, and describe the checks. Vague tasks pause for scope confirmation. Findings link to PDF regions or spreadsheet rows. Original files are never edited.
+Open **http://127.0.0.1:3000**. Next.js serves the workspace and forwards `/api` to the local Fastify API on port 3001. The API and frontend bind to localhost; a background worker handles extraction and reviews. Upload digital PDFs, UTF-8 comma-separated CSVs, or XLSX files up to 20 MiB, attach at least two files, and explain the task and document roles in the prompt. Verity resolves the roles, shows durable model/tool activity while it works, and asks in the same conversation when roles, scope, or evidence need clarification. Findings link to PDF regions or spreadsheet rows. Original files are never edited.
 
 The API seeds one local workspace after explicit migrations. Identical bytes reuse a document record within that workspace; different bytes with the same filename get a new identity. Document metadata lives in PostgreSQL; original bytes live in ignored `project/.data/blobs/`.
 
@@ -28,8 +28,8 @@ Docker Compose uses `postgres:16-alpine`, a named volume, and `127.0.0.1:55432`.
 
 | Location             | Responsibility                                                                   |
 | -------------------- | -------------------------------------------------------------------------------- |
-| `apps/web`           | Next.js App Router, Tailwind UI components, client-only PDF.js viewer            |
-| `apps/api`           | Fastify HTTP validation, uploads, evidence and review routes                     |
+| `apps/web`           | Next.js/Tailwind agent workspace, SSE timeline, source viewers                   |
+| `apps/api`           | Fastify HTTP validation, uploads, evidence, conversation/SSE and review routes   |
 | `apps/worker`        | Leased extraction and review jobs with checkpoint recovery                       |
 | `packages/core`      | Document use case, errors, types, and persistence interfaces                     |
 | `packages/database`  | PostgreSQL repositories and transactional, checksummed migrations                |
@@ -60,7 +60,9 @@ The later agent evaluation benchmark is separate from engineering tests. Use rev
 
 This is a single-user development application without authentication. The API refuses production mode and binds only to localhost; workspace filtering does not replace authorization. Shared deployment requires authentication, membership enforcement, operational resource limits, backups, and recovery work.
 
-The review implementation is under validation. Engineering tests use a deterministic model double; they test orchestration and do not establish Gemini accuracy. Live Gemini validation is still pending a locally configured API key. Model choice is configurable through `GEMINI_MODEL` and `GEMINI_AUDITOR_MODEL`; defaults follow Google's current documented example. External model calls incur provider charges and send the selected source excerpts to Gemini.
+Engineering tests use a deterministic model double; they test orchestration and do not establish Gemini accuracy. The generated-source live smoke test has completed successfully with Gemini, establishing SDK/schema/runtime compatibility rather than domain accuracy. Model choice is configurable through `GEMINI_MODEL` and `GEMINI_AUDITOR_MODEL`; defaults follow Google's current documented example. External model calls incur provider charges and send selected source excerpts to Gemini.
+
+The activity timeline shows bounded user-facing progress summaries and actual application tool inputs/results. It does not expose private model chain-of-thought. Activity is persisted locally in PostgreSQL and may contain document excerpts returned by tools.
 
 No OCR, scanned-image interpretation, corrected-document generation, external actions, formula execution, or post-MVP benchmark platform. Empty text pages and missing spreadsheet formula caches remain explicit source limitations. PDF text reading order and table relationships can still need manual inspection. XLSX archives are checked against 32 MiB per-entry / 100 MiB total actual expansion limits before parsing. Parsing is still in-process and not yet suitable for hostile public uploads. The workbook parser's UUID dependency is pinned to a patched compatible release through a scoped pnpm override.
 

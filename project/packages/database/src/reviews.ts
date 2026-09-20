@@ -6,9 +6,10 @@ import type {
   ReviewStatus,
   ReviewReport,
   ReviewDetail,
+  ReviewEvent,
 } from '@verity/core';
 
-const columns = `id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export interface ReviewJob {
   run: ReviewRun;
   leaseToken: string;
@@ -19,6 +20,7 @@ export function reviewRepository(pool: Pool) {
     async create(input: {
       workspaceId: string;
       policyId: string;
+      inferRoles?: boolean;
       quotationIds: string[];
       task: string;
       reviewerModel: string;
@@ -36,7 +38,7 @@ export function reviewRepository(pool: Pool) {
           'A selected document is unavailable in this workspace.',
         );
       const result = await pool.query<ReviewRun>(
-        `INSERT INTO review_runs(id,workspace_id,policy_id,quotation_ids,task,reviewer_model,auditor_model) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${columns}`,
+        `WITH created AS (INSERT INTO review_runs(id,workspace_id,policy_id,quotation_ids,task,reviewer_model,auditor_model,roles_resolved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *), event AS (INSERT INTO review_events(run_id,kind,title,data) SELECT id,'user','User message',jsonb_build_object('text',task) FROM created) SELECT ${columns} FROM created`,
         [
           randomUUID(),
           input.workspaceId,
@@ -45,9 +47,127 @@ export function reviewRepository(pool: Pool) {
           input.task,
           input.reviewerModel,
           input.auditorModel,
+          !input.inferRoles,
         ],
       );
       return result.rows[0]!;
+    },
+    async events(
+      workspaceId: string,
+      runId: string,
+      after = '0',
+    ): Promise<ReviewEvent[]> {
+      return (
+        await pool.query<ReviewEvent>(
+          `SELECT e.id::text,e.run_id AS "runId",e.kind,e.call_id AS "callId",e.title,e.data,e.created_at AS "createdAt" FROM review_events e JOIN review_runs r ON r.id=e.run_id WHERE r.workspace_id=$1 AND e.run_id=$2 AND e.id>$3::bigint ORDER BY e.id LIMIT 200`,
+          [workspaceId, runId, after],
+        )
+      ).rows;
+    },
+    async emit(
+      job: ReviewJob,
+      kind: ReviewEvent['kind'],
+      title: string,
+      data: Record<string, unknown> = {},
+      callId: string | null = null,
+    ): Promise<void> {
+      const encoded = JSON.stringify(data);
+      const payload =
+        encoded.length > 120000
+          ? JSON.stringify({
+              preview: encoded.slice(0, 110000),
+              truncated: true,
+            })
+          : encoded;
+      const result = await pool.query(
+        `INSERT INTO review_events(run_id,kind,title,data,call_id) SELECT id,$3,$4,$5::jsonb,$6 FROM review_runs WHERE id=$1 AND lease_token=$2 AND status='running' FOR UPDATE RETURNING id`,
+        [
+          job.run.id,
+          job.leaseToken,
+          kind,
+          title.slice(0, 500),
+          payload,
+          callId,
+        ],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
+    },
+    async assignRoles(
+      job: ReviewJob,
+      policyId: string,
+      quotationIds: string[],
+    ): Promise<void> {
+      const original = [job.run.policyId, ...job.run.quotationIds];
+      const selected = [policyId, ...quotationIds];
+      if (
+        new Set(selected).size !== original.length ||
+        selected.length !== original.length ||
+        selected.some((id) => !original.includes(id))
+      )
+        throw new Error(
+          'Document roles must account for each attached document exactly once.',
+        );
+      const result = await pool.query(
+        "UPDATE review_runs SET policy_id=$3,quotation_ids=$4,roles_resolved=true WHERE id=$1 AND lease_token=$2 AND status='running'",
+        [job.run.id, job.leaseToken, policyId, quotationIds],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
+      job.run.policyId = policyId;
+      job.run.quotationIds = quotationIds;
+      job.run.rolesResolved = true;
+    },
+    async message(
+      workspaceId: string,
+      runId: string,
+      text: string,
+    ): Promise<boolean> {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const row = (
+          await client.query<{ status: ReviewStatus; revision: number }>(
+            "SELECT status,revision FROM review_runs WHERE id=$1 AND workspace_id=$2 AND status IN ('needs_context','needs_scope','needs_input') FOR UPDATE",
+            [runId, workspaceId],
+          )
+        ).rows[0];
+        if (!row) {
+          await client.query('ROLLBACK');
+          return false;
+        }
+        const revision = row.revision + 1;
+        const purpose =
+          row.status === 'needs_context'
+            ? 'context'
+            : row.status === 'needs_scope'
+              ? 'scope'
+              : 'answers';
+        await client.query(
+          "UPDATE review_runs SET messages=messages || $2::jsonb,revision=$3,status='queued',attempts=0,error=NULL,updated_at=now() WHERE id=$1",
+          [runId, JSON.stringify([{ text, purpose, revision }]), revision],
+        );
+        await client.query(
+          "INSERT INTO review_events(run_id,kind,title,data) VALUES ($1,'user','User message',$2)",
+          [runId, JSON.stringify({ text })],
+        );
+        await client.query('COMMIT');
+        return true;
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async applyAnswers(
+      job: ReviewJob,
+      answers: Record<string, string>,
+    ): Promise<void> {
+      const result = await pool.query(
+        "UPDATE review_runs SET answers=answers || $3::jsonb WHERE id=$1 AND lease_token=$2 AND status='running'",
+        [job.run.id, job.leaseToken, JSON.stringify(answers)],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
+      job.run.answers = { ...job.run.answers, ...answers };
     },
     async list(workspaceId: string): Promise<ReviewRun[]> {
       return (
@@ -164,6 +284,30 @@ export function reviewRepository(pool: Pool) {
               key.startsWith('progress/') ? JSON.stringify(output) : null,
             ],
           );
+        if (saved.rowCount && usage) {
+          const encoded = JSON.stringify({
+            output,
+            role,
+            model: usage?.model ?? null,
+            inputTokens: usage?.inputTokens ?? 0,
+            outputTokens: usage?.outputTokens ?? 0,
+          });
+          await client.query(
+            'INSERT INTO review_events(run_id,kind,call_id,title,data) VALUES ($1,$2,$3,$4,$5)',
+            [
+              job.run.id,
+              role === 'tool' ? 'tool_result' : 'step_result',
+              key,
+              role === 'tool' ? 'Tool completed' : 'Step completed',
+              encoded.length > 120000
+                ? JSON.stringify({
+                    preview: encoded.slice(0, 110000),
+                    truncated: true,
+                  })
+                : encoded,
+            ],
+          );
+        }
         await client.query('COMMIT');
       } catch (error) {
         await client.query('ROLLBACK');
@@ -183,7 +327,7 @@ export function reviewRepository(pool: Pool) {
       } = {},
     ): Promise<void> {
       const result = await pool.query(
-        `UPDATE review_runs SET status=$3,phase=$4,scope=coalesce($5::jsonb,scope),report=coalesce($6::jsonb,report),error=$7,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running'`,
+        `WITH changed AS (UPDATE review_runs SET status=$3,phase=$4,scope=coalesce($5::jsonb,scope),report=coalesce($6::jsonb,report),error=$7,lease_until=NULL,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running' RETURNING id) INSERT INTO review_events(run_id,kind,title,data) SELECT id,'status',$4,jsonb_build_object('status',$3::text,'error',$7::text) FROM changed`,
         [
           job.run.id,
           job.leaseToken,
@@ -260,7 +404,7 @@ export function reviewRepository(pool: Pool) {
       const result =
         action === 'cancel'
           ? await pool.query(
-              "UPDATE review_runs SET status='cancelled',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status IN ('queued','running','needs_scope','needs_input')",
+              "UPDATE review_runs SET status='cancelled',lease_token=NULL,lease_until=NULL,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND status IN ('queued','running','needs_context','needs_scope','needs_input')",
               [id, workspaceId],
             )
           : await pool.query(

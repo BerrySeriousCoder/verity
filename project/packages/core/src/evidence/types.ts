@@ -50,6 +50,7 @@ export interface ParsedUnit {
 }
 
 export interface ExtractionSummary {
+  filename: string;
   id: string;
   documentId: string;
   status: 'queued' | 'running' | 'ready' | 'failed';

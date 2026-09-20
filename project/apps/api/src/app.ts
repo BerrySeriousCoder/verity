@@ -9,6 +9,7 @@ import type { BlobStore, DocumentRepository, PdfInspector } from '@verity/core';
 import type { EvidenceRepository, ReviewRepository } from '@verity/database';
 import { registerEvidenceRoutes } from './routes/evidence.js';
 import { registerReviewRoutes } from './routes/reviews.js';
+import { registerConversationRoutes } from './routes/conversation.js';
 
 interface AppDependencies {
   repository: DocumentRepository;
@@ -262,5 +263,11 @@ export async function buildApp(dependencies: AppDependencies) {
   if (dependencies.evidence) registerEvidenceRoutes(app, dependencies.evidence);
   if (dependencies.evidence && dependencies.reviews)
     registerReviewRoutes(app, dependencies.reviews, dependencies.evidence);
+  if (dependencies.evidence && dependencies.reviews)
+    registerConversationRoutes(
+      app,
+      dependencies.reviews,
+      dependencies.evidence,
+    );
   return app;
 }

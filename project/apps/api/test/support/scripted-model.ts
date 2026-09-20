@@ -15,10 +15,15 @@ export function scriptedModel(
   } = {},
 ): ReviewModel {
   return {
-    async generate(role, instruction, raw, schema) {
+    async generate(role, instruction, raw, schema, _signal, onProgress) {
       const input = (raw as { input: Record<string, unknown> }).input;
       let value: unknown;
-      if (instruction.startsWith('Propose'))
+      await onProgress?.(
+        'Inspecting the supplied evidence before choosing the next step.',
+      );
+      if (instruction.startsWith('Identify'))
+        value = { policyId, quotationIds: [quoteId], question: null };
+      else if (instruction.startsWith('Propose'))
         value = {
           description: 'Compare flood limits in both directions.',
           categories: ['Flood'],

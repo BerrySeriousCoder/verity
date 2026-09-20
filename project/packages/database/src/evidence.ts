@@ -108,7 +108,7 @@ export function evidenceRepository(pool: Pool) {
       documentId: string,
     ): Promise<ExtractionSummary | null> {
       const result = await pool.query<Omit<ExtractionSummary, 'units'>>(
-        `SELECT e.id, e.document_id AS "documentId", e.status, e.error, e.warnings, e.parser_version AS "parserVersion"
+        `SELECT e.id, d.filename, e.document_id AS "documentId", e.status, e.error, e.warnings, e.parser_version AS "parserVersion"
         FROM document_extractions e JOIN document_versions d ON d.id=e.document_id WHERE d.id=$1 AND d.workspace_id=$2`,
         [documentId, workspaceId],
       );
