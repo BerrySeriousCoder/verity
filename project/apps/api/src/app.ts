@@ -18,6 +18,7 @@ interface AppDependencies {
   workspaceId: string;
   ready: () => Promise<void>;
   logger?: boolean;
+  allowedOrigins?: string[];
   evidence?: EvidenceRepository;
   reviews?: ReviewRepository;
 }
@@ -55,12 +56,14 @@ export async function buildApp(dependencies: AppDependencies) {
       if (
         request.headers['sec-fetch-site'] === 'cross-site' ||
         (origin !== undefined &&
-          ![
-            'http://127.0.0.1:3000',
-            'http://localhost:3000',
-            'http://127.0.0.1:3001',
-            'http://localhost:3001',
-          ].includes(origin))
+          !(
+            dependencies.allowedOrigins ?? [
+              'http://127.0.0.1:3000',
+              'http://localhost:3000',
+              'http://127.0.0.1:3001',
+              'http://localhost:3001',
+            ]
+          ).includes(origin))
       ) {
         return reply.code(403).send({
           code: 'FORBIDDEN_ORIGIN',

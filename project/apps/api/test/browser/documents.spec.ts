@@ -41,6 +41,7 @@ test.beforeAll(async () => {
   await ensureLocalWorkspace(pool);
   directory = await mkdtemp(join(tmpdir(), 'verity-browser-test-'));
   app = await buildApp({
+    allowedOrigins: ['http://127.0.0.1:3100'],
     repository: documentRepository(pool),
     evidence,
     reviews,
@@ -51,7 +52,7 @@ test.beforeAll(async () => {
       await pool.query('SELECT 1');
     },
   });
-  await app.listen({ host: '127.0.0.1', port: 3001 });
+  await app.listen({ host: '127.0.0.1', port: 3101 });
 });
 
 test.afterAll(async () => {
@@ -150,7 +151,32 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     .first();
   await activity.click();
   await expect(activity.getByText('INPUT')).toBeVisible();
-  await page.getByRole('button', { name: 'Source 1 ↗' }).first().click();
+  await page
+    .getByRole('button', { name: /Focus Inventory/ })
+    .first()
+    .click();
+  await expect(
+    page.getByRole('dialog', { name: 'Focused worker' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Back to conversation' }).click();
+  await page.getByRole('button', { name: /Questionnaire/ }).click();
+  const ledger = page.getByRole('complementary', {
+    name: 'Review questionnaire',
+  });
+  await expect(ledger).toBeVisible();
+  await expect(ledger.getByText('2 checked · 2 discovered')).toBeVisible();
+  await ledger
+    .getByRole('button', { name: 'Full screen questionnaire' })
+    .click();
+  await ledger
+    .getByRole('button', { name: /Flood limit/ })
+    .first()
+    .click();
+  await expect(ledger.getByText('Original observations (2)')).toBeVisible();
+  await expect(
+    ledger.getByRole('heading', { name: 'Policy evidence' }),
+  ).toBeVisible();
+  await ledger.getByRole('button', { name: 'Source 1 ↗' }).first().click();
   await expect(
     page.getByRole('complementary', { name: 'Source inspector' }),
   ).toBeVisible();

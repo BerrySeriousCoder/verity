@@ -114,20 +114,36 @@ export function Timeline({
               <summary className="flex cursor-pointer list-none items-center gap-3 px-3 py-2.5">
                 <span
                   className={
-                    item.result
-                      ? 'text-emerald-400'
-                      : working
-                        ? 'animate-pulse text-amber-300'
-                        : 'text-zinc-500'
+                    item.result?.data['error']
+                      ? 'text-rose-400'
+                      : item.result
+                        ? 'text-emerald-400'
+                        : working
+                          ? 'animate-pulse text-amber-300'
+                          : 'text-zinc-500'
                   }
                 >
-                  {item.result ? '✓' : working ? '●' : '○'}
+                  {item.result?.data['error']
+                    ? '!'
+                    : item.result
+                      ? '✓'
+                      : working
+                        ? '●'
+                        : '○'}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-zinc-300">
                   {item.start.title}
                 </span>
                 <span className="text-[10px] text-zinc-500">
-                  {item.result ? 'done' : working ? 'running' : 'interrupted'}
+                  {item.result?.data['error']
+                    ? item.result.data['retrying']
+                      ? 'retrying'
+                      : 'failed'
+                    : item.result
+                      ? 'done'
+                      : working
+                        ? 'running'
+                        : 'interrupted'}
                 </span>
                 <span className="text-zinc-600 transition-transform group-open:rotate-90">
                   ›

@@ -9,7 +9,9 @@ import type {
 import { api } from './api';
 import { SourceViewer } from './components/SourceViewer';
 import { Composer } from './components/chat/Composer';
-import { Finding, Timeline } from './components/chat/Timeline';
+import { Finding } from './components/chat/Timeline';
+import { WorkerConversation } from './components/chat/WorkerConversation';
+import { ReviewLedger } from './components/chat/ReviewLedger';
 import { useConversation } from './hooks/useConversation';
 
 const errorMessage = (error: unknown) =>
@@ -26,6 +28,7 @@ export function App() {
   const [runs, setRuns] = useState<ReviewRun[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [ledgerOpen, setLedgerOpen] = useState(false);
   const [attached, setAttached] = useState<string[]>([]);
   const [selected, setSelected] = useState<DocumentVersion | null>(null);
   const [citation, setCitation] = useState<ResolvedEvidence | null>(null);
@@ -318,6 +321,14 @@ export function App() {
                     : 'Reconnecting…'}
               </span>
             )}
+            <button
+              onClick={() => setLedgerOpen(!ledgerOpen)}
+              className="rounded border border-zinc-700 px-2 py-1 text-zinc-300"
+              disabled={!active}
+            >
+              Questionnaire{' '}
+              {detail?.checks?.length ? `(${detail.checks.length})` : ''}
+            </button>
             <span className="font-mono">Gemini</span>
           </div>
         </header>
@@ -360,7 +371,9 @@ export function App() {
               </div>
             ) : (
               <>
-                <Timeline
+                <WorkerConversation
+                  key={active}
+                  workers={detail?.workers ?? []}
                   events={events}
                   working={working}
                   onCitation={(id) => void openCitation(id)}
@@ -547,10 +560,20 @@ export function App() {
           </div>
         </div>
       </main>
+      {ledgerOpen && detail && workspace && (
+        <ReviewLedger
+          key={active}
+          checks={detail.checks ?? []}
+          workspaceId={workspace.id}
+          policyId={detail.run.policyId}
+          onCitation={(id) => void openCitation(id)}
+          onClose={() => setLedgerOpen(false)}
+        />
+      )}
       {selected && (
         <aside
           aria-label="Source inspector"
-          className="fixed inset-0 z-40 flex min-w-0 flex-col border-l border-zinc-700 bg-white text-stone-800 lg:static lg:z-auto lg:w-[43%] lg:max-w-2xl"
+          className="fixed inset-0 z-40 flex min-w-0 flex-col border-l border-zinc-700 bg-white text-stone-800 lg:inset-y-0 lg:left-auto lg:w-[50%] lg:max-w-3xl"
         >
           <div className="flex h-14 shrink-0 items-center justify-between border-b border-stone-200 px-4">
             <span className="text-xs font-medium text-stone-500">

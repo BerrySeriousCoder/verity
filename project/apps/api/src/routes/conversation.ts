@@ -164,6 +164,8 @@ export function registerConversationRoutes(
             detail.run.status,
             detail.run.modelCalls,
             detail.run.phase,
+            detail.checks,
+            detail.workers,
           ]);
           if (version !== signature) {
             await send('snapshot', { ...detail, trace: [] });
