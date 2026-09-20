@@ -15,6 +15,7 @@ We will work from requirements to high-level design (HLD), then design each comp
 7. [Progress journal](journal.md): what changed, what we learned, and the next discussion.
 8. [Correctness failure inventory](05-correctness-failure-modes.md): large-document, mixed-format, cross-document, reasoning, and execution risks. Read this before finalizing the HLD.
 9. [Document workspace and exhaustive review](06-document-workspace.md): the core agent interaction model, on-demand reading tools, and coverage tracking for policy-versus-quotation review.
+10. [Parallel review and live verification ledger](07-parallel-review-and-live-ledger-plan.md): measured bottlenecks and the draft plan for canonical checks, parallel workers, batched verification, provider throttling, and the side panel.
 
 ## How we maintain this
 
