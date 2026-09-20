@@ -75,3 +75,13 @@ User described repository-style navigation for documents: list, search, read who
 Validation at this milestone: `pnpm check` passed (12 unit tests, strict types, formatting, Next.js production build); all 14 PostgreSQL integration tests and both browser tests passed. Production dependency audit reports no known vulnerabilities after the ExcelJS UUID override. Browser exports include resolved original source excerpts and anchors. Live-model test: not run; `GEMINI_API_KEY` is absent.
 
 Git milestones: `3c5f134` adds the evidence/review backend; `29d953a` adds the review workspace and citation navigation. Next acceptance step: configure the local credential, run `pnpm test:live`, resolve any model-specific failures, and update this record with the actual outcome.
+
+## 2026-09-20 — Parallel review and individual live worker threads
+
+Implemented engine version 2 for new reviews: shared request scheduling, paired spreadsheet units, concurrent independent inventories/audits, canonical membership validation, eight-check comparison packets, and independent batched verification. Raw observations remain inspectable. Existing engine-1 runs retain their checkpoints. Applied additive migration 0005 locally.
+
+Each worker has its own live activity thread with tools, progress, collapse and focus. Added a collapsible/wider/fullscreen questionnaire with live states, search/filtering, original observations, policy/quotation evidence, and links to worker activity. Browser tests now use separate ports and build output so a running development stack does not need to be stopped.
+
+Validation: formatting, strict types, unit tests and production build passed; 22 PostgreSQL integration tests passed, including concurrent packet fan-in, raw-member preservation, invalid citations, omitted verifier IDs and restart recovery. Both browser tests passed. The generated PDF/CSV live Gemini smoke test completed with verified conflicting limits in 11 calls (12,170 reported input tokens; 2,135 output tokens). This is runtime compatibility evidence, not a measured large-document speedup or accuracy benchmark.
+
+See ADR 0008 and the parallel runtime LLD for implementation boundaries: scheduling is process-local and fenced by the run lease, absence claims remain unverified without exhaustive evidence, and comparison/verifier overflow splitting remains follow-up work. No application output-token budget was added. User-authored JavaScript/TypeScript snippet documents were left untouched.

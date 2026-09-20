@@ -101,3 +101,7 @@ Bound model calls, elapsed time, retrieved tokens, tool results, retries, and sp
 ## Remaining architecture work
 
 Measure quality and cost on representative larger documents, then design the post-MVP evaluation runner. Shared deployment additionally requires authentication, workspace membership enforcement, object storage, hostile-file isolation, backups, operational observability, and explicit retention policy.
+
+## Parallel review increment — 2026-09-20
+
+New reviews use harness-scheduled concurrent source inventories and independent audits, membership-preserving canonical checks, and batched comparison/verification. PostgreSQL remains authoritative for checkpoints, worker state and questionnaire findings. Each worker has a separate live frontend thread; a collapsible/fullscreen questionnaire links checks to original evidence. Existing runs keep their pinned engine version. See [ADR 0008](decisions/0008-parallel-review-and-worker-threads.md) and [runtime LLD](lld/03-parallel-review.md) for exact boundaries and deferred distributed scheduling.

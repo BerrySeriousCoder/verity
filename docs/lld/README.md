@@ -26,3 +26,5 @@ Partial draft available: [review interface: citation resolution and highlighting
 Implemented: [immutable PDF upload and viewing](01-document-upload.md), followed by [evidence ingestion and durable review](02-evidence-review-runtime.md). The latter includes digital PDF/CSV/XLSX provenance, prompt-first tasks, durable event streaming, citation navigation, Gemini integration, coverage tracking, and review checkpoints. The generated-source live Gemini acceptance test passes; accuracy evaluation remains post-MVP work.
 
 Use the [LLD template](template.md). Drafting a dependent design may reveal a flaw in an earlier one; update the HLD and record the reason instead of treating the order as irreversible.
+
+Implemented parallel increment: [harness scheduling, canonical checks, worker streams and questionnaire](03-parallel-review.md).

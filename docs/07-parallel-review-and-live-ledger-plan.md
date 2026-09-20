@@ -1,23 +1,23 @@
 # Parallel review and live verification ledger
 
-Status: draft for product and engineering discussion. No implementation decision is accepted by this document yet.
+Status: accepted direction, implemented first increment on 2026-09-20. The implementation contract and remaining work are in [the parallel runtime LLD](lld/03-parallel-review.md). Detailed proposals below are not all shipped. The user rejected a single aggregate worker card; separate live worker threads are required.
 
 ## Why this work is necessary
 
-The first large review established that the correctness-oriented serial pipeline works, but does not scale:
+The first large review exposed substantial latency in the serial pipeline. It was not a thorough correctness evaluation:
 
-| Measurement | Observed result |
-| --- | ---: |
-| Elapsed before cancellation | 6h 42m |
-| Gemini calls | 1,078 |
-| Accounted input tokens | 3,896,529 |
-| Accounted output tokens | 324,202 |
-| Source units inventoried and audited | 44 / 44 |
-| Inventory + independent audit time | ~47m |
-| Raw reconciled obligations | 1,090 |
-| Findings completed | 172 |
-| Comparison calls for 173 started checks | 816 |
-| Average comparison calls per started check | 4.72 |
+| Measurement                                | Observed result |
+| ------------------------------------------ | --------------: |
+| Elapsed before cancellation                |          6h 42m |
+| Gemini calls                               |           1,078 |
+| Accounted input tokens                     |       3,896,529 |
+| Accounted output tokens                    |         324,202 |
+| Source units inventoried and audited       |         44 / 44 |
+| Inventory + independent audit time         |            ~47m |
+| Raw reconciled obligations                 |           1,090 |
+| Findings completed                         |             172 |
+| Comparison calls for 173 started checks    |             816 |
+| Average comparison calls per started check |            4.72 |
 
 The pipeline preserves the union of reviewer and auditor output and removes only exact duplicates. That is safe against silent deletion, but it turns wording variants, repeated workbook sections, and the two independent passes into too many separate comparison tasks. Parallelizing all 1,090 items without canonicalization would reduce wall-clock time while retaining unnecessary calls, cost, duplicated findings, and rate-limit pressure.
 
@@ -102,7 +102,7 @@ Questionnaire rows can appear as `discovered` while inventory completes. They re
 Run fan-in in layers:
 
 1. Normalize whitespace, case, punctuation, currency formats, reference labels, and stable entity names.
-2. Detect byte/text-identical repeated rows and sheets deterministically. Process one semantic copy while retaining every source location as provenance.
+2. Treat identical text as a grouping candidate only. Sheet identity, headings, entities, periods and nearby qualifications may change its meaning.
 3. Generate candidate groups using category, entity, clause/reference, normalized title, amounts, dates, and lexical similarity.
 4. Ask a constrained canonicalizer to assign each candidate raw ID to a canonical check. It may not omit an input ID.
 5. Run deterministic membership validation. Unassigned or multiply assigned IDs fail the packet.
@@ -121,7 +121,7 @@ Replace the current autonomous loop per obligation with packet-oriented evidence
 5. If particular checks need more evidence, return typed evidence requests keyed to those checks.
 6. Resolve all requests together and allow one focused follow-up packet. Checks still lacking evidence become `unverified`; they do not loop silently.
 
-This converts roughly five model turns per check into one or two turns per packet. It also makes absence checks cheaper: once both source inventories and the canonical membership audit are complete, the harness can determine that a side has no member without forcing every comparison agent to page through the entire opposite inventory.
+This converts roughly five model turns per check into one or two turns per packet. Inventory membership can identify missing candidates, but cannot prove documentary absence. The shipped version leaves these claims unverified; exhaustive absence investigation remains separate work.
 
 Amounts, totals, percentages, dates, and quantities still use deterministic tools. A batch result cannot mark a numerical conclusion verified unless its referenced calculation result exists.
 
@@ -223,18 +223,9 @@ On mobile, the ledger is a full-screen route or sheet. It should not squeeze the
 
 ### Showing parallel agents
 
-Do not interleave many streaming summaries in the main chat. Present one stage card:
+Show **each worker in its own live thread**, using the same progress and tool presentation as the normal conversation. Keep threads stable as concurrent events arrive. Each thread has a title describing its source range or check packet, current status, real tool steps, collapse/expand, and a focused view. Completed older threads may be paginated; active workers remain visible. The main conversation continues to carry milestones and batched questions. The questionnaire is a separate inspection panel.
 
-```text
-Building questionnaire
-6 active · 18 queued · 20 complete · 1 retrying
-
-[Inventory] Placement rows 65–124       running
-[Audit]     Policy pages 12–13          running
-[Inventory] Policy pages 14–15          complete
-```
-
-Each worker row expands to its real model call and tool events. Chat receives milestone messages such as “All 44 units inventoried; consolidating 1,090 raw obligations.” The ledger receives committed domain updates. Partial model text never becomes a questionnaire item.
+The harness determines available request slots from configured concurrency and quota pacing. Models do not spawn unbounded workers or choose the project rate limit.
 
 ## One source of truth for chat, panel, and report
 
@@ -267,7 +258,7 @@ Parallelism is accepted only with these invariants:
 6. Every verification packet returns each finding ID exactly once.
 7. A worker can commit only its leased partition and current review revision.
 8. A cancelled or superseded revision rejects late worker commits.
-9. `not_found` is permitted only after both source inventories and canonical membership coverage are complete.
+9. Inventory and membership coverage alone never authorize `not_found`. It requires a separately supported exhaustive absence investigation; the shipped version leaves it unverified.
 10. Questions are collected and shown after all independent work finishes, preserving the accepted non-interruption behavior.
 
 ## Delivery plan
@@ -328,4 +319,3 @@ These are acceptance targets, not current claims.
 - [Gemini context caching](https://ai.google.dev/gemini-api/docs/caching): implicit caching is enabled for current models; the Interactions API does not support explicit cache objects.
 - [Anthropic, Building effective agents](https://www.anthropic.com/engineering/building-effective-agents): sectioning independent work and aggregating results programmatically.
 - [Anthropic multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system): orchestrator-worker fan-out, 3–5 parallel workers, durable checkpoints, observability, and the latency/cost trade-offs of multi-agent execution.
-
