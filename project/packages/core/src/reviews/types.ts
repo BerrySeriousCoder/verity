@@ -32,6 +32,7 @@ export interface ReviewRun {
   error: string | null;
   revision: number;
   answers: Record<string, string>;
+  engineVersion: number;
   modelCalls: number;
   inputTokens: number;
   outputTokens: number;
@@ -82,7 +83,34 @@ export interface ReviewReport {
   complete: boolean;
 }
 
+export interface ReviewCheck {
+  id: string;
+  title: string;
+  category: string;
+  direction: ReviewFinding['direction'];
+  state:
+    'discovered' | 'ready' | 'comparing' | 'provisional' | 'verifying' | 'done';
+  members: {
+    id: string;
+    title: string;
+    documentId: string;
+    evidenceIds: string[];
+    references: string[];
+  }[];
+  workerId: string | null;
+  finding: ReviewFinding | null;
+}
+export interface ReviewWorkItem {
+  id: string;
+  title: string;
+  role: string;
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'retry_wait';
+  attempt: number;
+  error: string | null;
+}
 export interface ReviewDetail {
+  checks: ReviewCheck[];
+  workers: ReviewWorkItem[];
   run: ReviewRun;
   report: ReviewReport | null;
   trace: {

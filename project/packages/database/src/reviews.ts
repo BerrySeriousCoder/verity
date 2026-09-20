@@ -7,9 +7,11 @@ import type {
   ReviewReport,
   ReviewDetail,
   ReviewEvent,
+  ReviewCheck,
+  ReviewWorkItem,
 } from '@verity/core';
 
-const columns = `id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export interface ReviewJob {
   run: ReviewRun;
   leaseToken: string;
@@ -75,6 +77,8 @@ export function reviewRepository(pool: Pool) {
       const payload =
         encoded.length > 120000
           ? JSON.stringify({
+              workerId: data['workerId'],
+              workerTitle: data['workerTitle'],
               preview: encoded.slice(0, 110000),
               truncated: true,
             })
@@ -193,7 +197,21 @@ export function reviewRepository(pool: Pool) {
         [id],
       );
       const { report, ...state } = run;
-      return { run: state, report, trace: trace.rows };
+      const checks = await pool.query<{ data: ReviewCheck }>(
+        'SELECT data FROM review_checks WHERE run_id=$1 AND revision=$2 ORDER BY id',
+        [id, run.revision],
+      );
+      const workers = await pool.query<ReviewWorkItem>(
+        'SELECT id,title,role,status,attempt,error FROM review_work_items WHERE run_id=$1 AND revision=$2 ORDER BY id',
+        [id, run.revision],
+      );
+      return {
+        run: state,
+        report,
+        trace: trace.rows,
+        checks: checks.rows.map((row) => row.data),
+        workers: workers.rows,
+      };
     },
     async claim(): Promise<ReviewJob | null> {
       const leaseToken = randomUUID();
@@ -216,6 +234,73 @@ export function reviewRepository(pool: Pool) {
           )
         ).rowCount === 1
       );
+    },
+    async replaceChecks(
+      job: ReviewJob,
+      check: ReviewCheck,
+      rawIds: string[],
+    ): Promise<void> {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const owned = await client.query(
+          "SELECT id FROM review_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND revision=$3 FOR UPDATE",
+          [job.run.id, job.leaseToken, job.run.revision],
+        );
+        if (!owned.rowCount) throw new Error('Review lease lost or cancelled.');
+        await client.query(
+          'DELETE FROM review_checks WHERE run_id=$1 AND revision=$2 AND id=ANY($3::text[])',
+          [job.run.id, job.run.revision, rawIds],
+        );
+        await client.query(
+          'INSERT INTO review_checks(run_id,revision,id,data) VALUES($1,$2,$3,$4) ON CONFLICT(run_id,revision,id) DO UPDATE SET data=EXCLUDED.data,updated_at=now()',
+          [job.run.id, job.run.revision, check.id, JSON.stringify(check)],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async saveCheck(job: ReviewJob, check: ReviewCheck): Promise<void> {
+      const result = await pool.query(
+        `WITH owned AS (
+        SELECT id FROM review_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND revision=$3 FOR UPDATE
+      ) INSERT INTO review_checks(run_id,revision,id,data)
+        SELECT id,$3,$4,$5::jsonb FROM owned ON CONFLICT(run_id,revision,id)
+        DO UPDATE SET data=EXCLUDED.data,updated_at=now() RETURNING id`,
+        [
+          job.run.id,
+          job.leaseToken,
+          job.run.revision,
+          check.id,
+          JSON.stringify(check),
+        ],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
+    },
+    async work(job: ReviewJob, item: ReviewWorkItem): Promise<void> {
+      const result = await pool.query(
+        `WITH owned AS (
+        SELECT id FROM review_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND revision=$3 FOR UPDATE
+      ) INSERT INTO review_work_items(run_id,revision,id,title,role,status,attempt,error,lease_token)
+        SELECT id,$3,$4,$5,$6,$7,$8,$9,$2 FROM owned
+        ON CONFLICT(run_id,revision,id) DO UPDATE SET status=EXCLUDED.status,attempt=EXCLUDED.attempt,error=EXCLUDED.error,lease_token=EXCLUDED.lease_token,updated_at=now() RETURNING id`,
+        [
+          job.run.id,
+          job.leaseToken,
+          job.run.revision,
+          item.id,
+          item.title,
+          item.role,
+          item.status,
+          item.attempt,
+          item.error,
+        ],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
     },
     async reserveCall(job: ReviewJob): Promise<void> {
       const result = await pool.query(
@@ -251,6 +336,7 @@ export function reviewRepository(pool: Pool) {
       role: string,
       usage?: { model: string; inputTokens: number; outputTokens: number },
       eventCallId = key,
+      workerId?: string,
     ): Promise<void> {
       const client = await pool.connect();
       try {
@@ -278,13 +364,14 @@ export function reviewRepository(pool: Pool) {
             'UPDATE review_runs SET phase=$2,input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,report=coalesce($5::jsonb,report),updated_at=now() WHERE id=$1',
             [
               job.run.id,
-              key.startsWith('inventory/')
+              key.startsWith('inventory/') || key.startsWith('v2/inventory/')
                 ? 'Building source checklist'
-                : key.startsWith('audit/')
+                : key.startsWith('audit/') || key.startsWith('v2/audit/')
                   ? 'Independently auditing source coverage'
-                  : key.startsWith('reconcile/')
+                  : key.startsWith('reconcile/') ||
+                      key.startsWith('v2/canonical/')
                     ? 'Combining independent checklists'
-                    : key.startsWith('verify/')
+                    : key.startsWith('verify/') || key.startsWith('v2/verify/')
                       ? 'Verifying findings against evidence'
                       : key.startsWith('scope')
                         ? 'Determining review scope'
@@ -296,6 +383,7 @@ export function reviewRepository(pool: Pool) {
           );
         if (saved.rowCount && usage) {
           const encoded = JSON.stringify({
+            workerId,
             output,
             role,
             model: usage?.model ?? null,
@@ -311,6 +399,7 @@ export function reviewRepository(pool: Pool) {
               role === 'tool' ? 'Tool completed' : 'Step completed',
               encoded.length > 120000
                 ? JSON.stringify({
+                    workerId,
                     preview: encoded.slice(0, 110000),
                     truncated: true,
                   })

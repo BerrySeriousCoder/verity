@@ -71,8 +71,8 @@ after(async () => {
   await admin.end();
 });
 
-async function create() {
-  return reviews.create({
+async function create(version = 1) {
+  const run = await reviews.create({
     workspaceId: LOCAL_WORKSPACE_ID,
     policyId,
     quotationIds: [quoteId],
@@ -80,6 +80,11 @@ async function create() {
     reviewerModel: 'test-double',
     auditorModel: 'test-double',
   });
+  await pool.query('UPDATE review_runs SET engine_version=$2 WHERE id=$1', [
+    run.id,
+    version,
+  ]);
+  return run;
 }
 
 test('clear scope produces bidirectional verified findings and durable checkpoints', async () => {
@@ -349,4 +354,320 @@ test('review lease reclamation rejects stale checkpoints and resumes committed s
     (await reviews.detail(LOCAL_WORKSPACE_ID, run.id))?.report?.complete,
     true,
   );
+});
+
+test('parallel review retains all raw members and exposes independent live workers', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  let active = 0,
+    peak = 0;
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(...args) {
+          active++;
+          peak = Math.max(peak, active);
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 15));
+            return await base.generate(...args);
+          } finally {
+            active--;
+          }
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.engineVersion, 2);
+  assert.equal(detail?.report?.complete, true);
+  assert.equal(detail?.checks.length, 2);
+  assert.equal(detail?.checks.flatMap((check) => check.members).length, 4);
+  assert.ok(
+    detail?.checks.every(
+      (check) => check.state === 'done' && check.finding?.verified,
+    ),
+  );
+  assert.ok(peak > 1 && peak <= 4, `observed concurrency ${peak}`);
+  assert.ok(detail?.workers.some((worker) => worker.role === 'auditor'));
+  assert.ok(detail?.workers.every((worker) => worker.status === 'completed'));
+  assert.ok(detail!.run.modelCalls < 15);
+  const events = await reviews.events(LOCAL_WORKSPACE_ID, run.id);
+  assert.ok(
+    events.some(
+      (event) => event.kind === 'assistant_delta' && event.data['workerId'],
+    ),
+  );
+});
+
+test('parallel verification fails closed on fabricated citations', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: createScriptedModel(policyId, quoteId, evidence, {
+        invalidCitation: true,
+      }),
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.report?.complete, false);
+  assert.ok(detail?.checks.every((check) => check.finding?.verified === false));
+});
+
+test('parallel canonicalization cannot omit raw observations', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  await assert.rejects(
+    executeReview(
+      job,
+      {
+        reviews,
+        evidence,
+        model: {
+          async generate(role, instruction, input, schema, signal, onProgress) {
+            if (instruction.startsWith('Group only'))
+              return {
+                value: schema.parse({ groups: [] }),
+                model: 'test-double',
+                inputTokens: 1,
+                outputTokens: 1,
+              };
+            return base.generate(
+              role,
+              instruction,
+              input,
+              schema,
+              signal,
+              onProgress,
+            );
+          },
+        },
+      },
+      new AbortController().signal,
+    ),
+    /each requested ID/,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.checks.length, 4, 'raw observations remain visible');
+  await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
+  await assert.rejects(
+    reviews.saveCheck(job, detail!.checks[0]!),
+    /lease lost/,
+  );
+});
+
+test('parallel recovery reuses committed model steps and rejects the old lease', async () => {
+  const run = await create(2);
+  const original = await reviews.claim();
+  assert.ok(original);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  await assert.rejects(
+    executeReview(
+      original,
+      {
+        reviews,
+        evidence,
+        model: {
+          async generate(...args) {
+            if (args[1].startsWith('Independently verify each'))
+              throw new Error('simulated process failure');
+            return base.generate(...args);
+          },
+        },
+      },
+      new AbortController().signal,
+    ),
+    /simulated process failure/,
+  );
+  const before = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.ok(before?.checks.every((check) => check.state === 'verifying'));
+  await pool.query(
+    "UPDATE review_runs SET lease_until=now()-interval '1 second' WHERE id=$1",
+    [run.id],
+  );
+  const resumed = await reviews.claim();
+  assert.ok(resumed);
+  await assert.rejects(
+    reviews.saveCheck(original, before!.checks[0]!),
+    /lease lost/,
+  );
+  const instructions: string[] = [];
+  await executeReview(
+    resumed,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(...args) {
+          instructions.push(args[1]);
+          return base.generate(...args);
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  assert.equal(
+    instructions.length,
+    1,
+    'only unfinished verification calls the model again',
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.report?.complete, true);
+  assert.equal(detail?.checks.length, 2);
+  assert.equal(
+    new Set(
+      detail?.checks.flatMap((check) =>
+        check.members.map((member) => member.id),
+      ),
+    ).size,
+    4,
+  );
+});
+
+test('a missing batched verification result cannot become a partial success', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  await assert.rejects(
+    executeReview(
+      job,
+      {
+        reviews,
+        evidence,
+        model: {
+          async generate(role, instruction, input, schema, signal, onProgress) {
+            if (instruction.startsWith('Independently verify each'))
+              return {
+                value: schema.parse({ items: [] }),
+                inputTokens: 1,
+                outputTokens: 1,
+                model: 'test-double',
+              };
+            return base.generate(
+              role,
+              instruction,
+              input,
+              schema,
+              signal,
+              onProgress,
+            );
+          },
+        },
+      },
+      new AbortController().signal,
+    ),
+    /each requested ID/,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.report?.complete, false);
+  assert.ok(detail?.checks.every((check) => check.finding?.verified === false));
+  await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
+});
+
+test('concurrent comparison packets merge every finding without overwriting progress', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  let comparing = 0,
+    peak = 0;
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, input, schema, signal, onProgress) {
+          if (instruction.startsWith('Group only')) {
+            const members = (
+              input as { input: { members: { id: string; title: string }[] } }
+            ).input.members;
+            return {
+              value: schema.parse({
+                groups: members.map((member) => ({
+                  title: member.title,
+                  memberIds: [member.id],
+                })),
+              }),
+              inputTokens: 1,
+              outputTokens: 1,
+              model: 'test-double',
+            };
+          }
+          if (instruction.startsWith('Inventory every')) {
+            const result = await base.generate(
+              role,
+              instruction,
+              input,
+              schema,
+              signal,
+              onProgress,
+            );
+            const value = result.value as { obligations: { title: string }[] };
+            return {
+              ...result,
+              value: schema.parse({
+                ...value,
+                obligations: value.obligations.flatMap((item) =>
+                  Array.from({ length: 6 }, (_, index) => ({
+                    ...item,
+                    title: `${item.title} ${index}`,
+                  })),
+                ),
+              }),
+            };
+          }
+          if (instruction.startsWith('Compare every')) {
+            comparing++;
+            peak = Math.max(peak, comparing);
+            try {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              return await base.generate(
+                role,
+                instruction,
+                input,
+                schema,
+                signal,
+                onProgress,
+              );
+            } finally {
+              comparing--;
+            }
+          }
+          return base.generate(
+            role,
+            instruction,
+            input,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.ok(peak > 1, 'comparison packets actually overlap');
+  assert.equal(detail?.checks.length, 24);
+  assert.equal(detail?.report?.findings.length, 24);
+  assert.equal(
+    new Set(detail?.report?.findings.map((finding) => finding.id)).size,
+    24,
+  );
+  assert.equal(detail?.report?.complete, true);
 });

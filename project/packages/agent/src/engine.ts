@@ -23,6 +23,9 @@ import {
 import { batchBlocks, validateInventory } from './inventory.js';
 import { calculate } from './calculation.js';
 import { recentContext, boundedItems } from './context.js';
+import { parallelReview, type WorkerIdentity } from './parallel-review.js';
+import { RequestScheduler } from './scheduler.js';
+const requestScheduler = new RequestScheduler();
 
 interface EngineDependencies {
   reviews: ReviewRepository;
@@ -35,7 +38,8 @@ export async function executeReview(
   dependencies: EngineDependencies,
   signal: AbortSignal,
 ): Promise<void> {
-  const { reviews, evidence, model } = dependencies;
+  const { reviews, evidence } = dependencies;
+  const model = dependencies.model;
   const run = job.run;
   const documentIds = [run.policyId, ...run.quotationIds];
   await reviews.emit(job, 'assistant', 'Working', {
@@ -96,106 +100,197 @@ export async function executeReview(
     input: unknown,
     schema: z.ZodType<T>,
     validate?: (value: T) => void,
+    worker?: WorkerIdentity,
   ): Promise<T> {
     signal.throwIfAborted();
     const prior = await reviews.loadStep<T>(run.id, key);
     if (prior !== undefined) {
       const parsed = schema.parse(prior);
       validate?.(parsed);
+      if (worker)
+        await reviews.work(job, {
+          ...worker,
+          role,
+          status: 'completed',
+          attempt: 0,
+          error: null,
+        });
       return parsed;
     }
-    let lastError = '';
-    for (let attempt = 0; attempt < 2; attempt++) {
-      signal.throwIfAborted();
-      await reviews.reserveCall(job);
-      const label = key.startsWith('scope')
-        ? 'Plan the review'
-        : key.startsWith('roles')
-          ? 'Identify attached documents'
-          : key.startsWith('inventory')
-            ? 'Extract source obligations'
-            : key.startsWith('audit')
-              ? 'Independently audit coverage'
-              : key.startsWith('verify')
-                ? 'Verify cited evidence'
-                : key.startsWith('answers')
-                  ? 'Read your clarification'
-                  : 'Choose the next evidence check';
-      const attemptCallId = `${key}/attempt-${attempt + 1}`;
-      await reviews.emit(
-        job,
-        'step_start',
-        label,
-        { role, attempt: attempt + 1 },
-        attemptCallId,
-      );
-      let result;
-      try {
-        result = await model.generate(
-          role,
-          instruction,
-          { input, repair: lastError || null },
-          schema,
-          signal,
-          async (text) =>
-            reviews.emit(
-              job,
-              'assistant_delta',
-              label,
-              { text, role },
-              attemptCallId,
-            ),
-        );
-      } catch (error) {
-        if (error instanceof ModelResponseError) {
-          await reviews.recordModelUsage(job, error);
-          const retrying = error.retryable && attempt === 0;
-          await reviews.emit(
-            job,
-            'step_result',
-            label,
-            { status: error.status, error: error.message, retrying },
-            attemptCallId,
+    if (worker)
+      await reviews.work(job, {
+        ...worker,
+        role,
+        status: 'queued',
+        attempt: 0,
+        error: null,
+      });
+    try {
+      let lastError = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        signal.throwIfAborted();
+        const label =
+          worker?.title ??
+          (key.startsWith('scope')
+            ? 'Plan the review'
+            : key.startsWith('roles')
+              ? 'Identify attached documents'
+              : key.startsWith('inventory')
+                ? 'Extract source obligations'
+                : key.startsWith('audit')
+                  ? 'Independently audit coverage'
+                  : key.startsWith('verify')
+                    ? 'Verify cited evidence'
+                    : key.startsWith('answers')
+                      ? 'Read your clarification'
+                      : 'Choose the next evidence check');
+        const attemptCallId = `${key}/${job.leaseToken}/attempt-${attempt + 1}`;
+        let result;
+        try {
+          result = await requestScheduler.run(
+            { instruction, input, repair: lastError },
+            signal,
+            async () => {
+              await reviews.reserveCall(job);
+              if (worker)
+                await reviews.work(job, {
+                  ...worker,
+                  role,
+                  status: 'running',
+                  attempt: attempt + 1,
+                  error: null,
+                });
+              await reviews.emit(
+                job,
+                'step_start',
+                label,
+                {
+                  role,
+                  attempt: attempt + 1,
+                  workerId: worker?.id,
+                  workerTitle: worker?.title,
+                },
+                attemptCallId,
+              );
+              return model.generate(
+                role,
+                instruction,
+                { input, repair: lastError || null },
+                schema,
+                signal,
+                async (text) =>
+                  reviews.emit(
+                    job,
+                    'assistant_delta',
+                    label,
+                    { text, role, workerId: worker?.id },
+                    attemptCallId,
+                  ),
+              );
+            },
           );
-          if (retrying) {
-            lastError = error.message;
-            await reviews.emit(job, 'assistant', 'Retrying model step', {
-              text: `${label} was interrupted by Gemini (${error.status}). I’m retrying this step once without discarding completed checkpoints.`,
-            });
-            continue;
+        } catch (caught) {
+          const httpStatus =
+            caught && typeof caught === 'object' && 'status' in caught
+              ? String(caught.status)
+              : '';
+          const error = ['429', '500', '502', '503', '504'].includes(httpStatus)
+            ? new ModelResponseError({
+                message: `Gemini request failed (${httpStatus}).`,
+                status: httpStatus,
+                retryable: true,
+                inputTokens: 0,
+                outputTokens: 0,
+                model:
+                  role === 'auditor' ? run.auditorModel : run.reviewerModel,
+              })
+            : caught;
+          if (error instanceof ModelResponseError) {
+            await reviews.recordModelUsage(job, error);
+            const retrying = error.retryable && attempt === 0;
+            await reviews.emit(
+              job,
+              'step_result',
+              label,
+              {
+                status: error.status,
+                error: error.message,
+                retrying,
+                workerId: worker?.id,
+              },
+              attemptCallId,
+            );
+            if (retrying) {
+              if (worker)
+                await reviews.work(job, {
+                  ...worker,
+                  role,
+                  status: 'retry_wait',
+                  attempt: attempt + 1,
+                  error: error.message,
+                });
+              lastError = error.message;
+              await reviews.emit(job, 'assistant', 'Retrying model step', {
+                workerId: worker?.id,
+                text: `${label} was interrupted by Gemini (${error.status}). I’m retrying this step once without discarding completed checkpoints.`,
+              });
+              continue;
+            }
           }
+          throw error;
         }
-        throw error;
-      }
-      try {
-        validate?.(result.value);
-      } catch (error) {
-        lastError =
-          error instanceof Error
-            ? error.message
-            : 'Invalid evidence references.';
+        try {
+          validate?.(result.value);
+        } catch (error) {
+          lastError =
+            error instanceof Error
+              ? error.message
+              : 'Invalid evidence references.';
+          await reviews.saveStep(
+            job,
+            `${key}/rejected-${attempt}`,
+            { reason: lastError },
+            role,
+            result,
+            attemptCallId,
+            worker?.id,
+          );
+          if (attempt === 1) throw error;
+          continue;
+        }
         await reviews.saveStep(
           job,
-          `${key}/rejected-${attempt}`,
-          { reason: lastError },
+          key,
+          result.value,
           role,
           result,
           attemptCallId,
+          worker?.id,
         );
-        if (attempt === 1) throw error;
-        continue;
+        if (worker)
+          await reviews.work(job, {
+            ...worker,
+            role,
+            status: 'completed',
+            attempt: attempt + 1,
+            error: null,
+          });
+        return result.value;
       }
-      await reviews.saveStep(
-        job,
-        key,
-        result.value,
-        role,
-        result,
-        attemptCallId,
-      );
-      return result.value;
+      throw new Error('Structured step validation failed.');
+    } catch (error) {
+      if (worker)
+        await reviews
+          .work(job, {
+            ...worker,
+            role,
+            status: 'failed',
+            attempt: 2,
+            error: error instanceof Error ? error.message : 'Worker failed',
+          })
+          .catch(() => undefined);
+      throw error;
     }
-    throw new Error('Structured step validation failed.');
   }
 
   async function readUnit(unitId: string): Promise<EvidenceBlock[]> {
@@ -377,6 +472,19 @@ export async function executeReview(
   await reviews.emit(job, 'assistant', 'Plan', {
     text: `I’ll check ${scope.categories.join(', ')}. First I’ll build a checklist from each document, then independently audit coverage, compare the items, and verify each finding against its citations.`,
   });
+
+  if (run.engineVersion >= 2) {
+    await parallelReview({
+      job,
+      reviews,
+      evidence,
+      sources,
+      scope,
+      signal,
+      call,
+    });
+    return;
+  }
 
   const inventory: Obligation[] = [];
   const limitations = [

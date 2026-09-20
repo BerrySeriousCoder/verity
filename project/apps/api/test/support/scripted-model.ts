@@ -66,6 +66,55 @@ export function scriptedModel(
               ],
           exclusions: [],
         };
+      } else if (instruction.startsWith('Group only')) {
+        const members = input['members'] as { id: string; title: string }[];
+        value = {
+          groups: [
+            {
+              title: 'Flood limit',
+              memberIds: members.map((member) => member.id),
+            },
+          ],
+        };
+      } else if (instruction.startsWith('Compare every')) {
+        const bundles = input['bundles'] as {
+          check: { id: string };
+          evidence: { id: string }[];
+        }[];
+        value = {
+          items: bundles.map((bundle) => ({
+            id: bundle.check.id,
+            requests: [],
+            calculation: null,
+            decision: {
+              status: options.withQuestions ? 'needs_input' : 'aligned',
+              explanation: 'Both sources state the flood limit is 1250.',
+              evidenceIds: options.invalidCitation
+                ? [randomUUID()]
+                : bundle.evidence.map((item) => item.id),
+              question:
+                options.withQuestions &&
+                !(input['userAnswers'] as Record<string, string>)[
+                  bundle.check.id
+                ]
+                  ? 'Which effective period applies to this limit?'
+                  : null,
+              requiresCalculation: false,
+            },
+          })),
+        };
+      } else if (instruction.startsWith('Independently verify each')) {
+        const items = input['items'] as { id: string }[];
+        value = {
+          items: items.map((item) => ({
+            id: item.id,
+            verification: {
+              supported: !options.withQuestions,
+              reason: 'Both original excerpts state the same limit.',
+              question: null,
+            },
+          })),
+        };
       } else if (instruction.startsWith('Compare the source')) {
         const obligation = input['obligation'] as {
           id: string;
