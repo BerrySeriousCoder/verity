@@ -54,4 +54,12 @@ Tests exercise concurrent capacity, exact-ID coverage, forged-citation rejection
 
 The smoke test establishes transport/schema/runtime compatibility, not insurance accuracy or large-document speedup. Next measurements should compare the same larger fixture across serial and parallel versions: elapsed time, provider usage, raw-member coverage, canonical grouping precision, supported findings and unresolved checks.
 
-Still outside this increment: distributed per-work leasing, exhaustive absence investigation, semantic grouping across partition boundaries, automatic PDF section packing, robust packet splitting for comparison/verifier output overflow, per-check stored calculation history in the panel, project-wide quota coordination, and full-scale evaluation. Oversized non-inventory packets currently fail visibly and preserve checkpoints; they never silently truncate the checklist.
+Still outside this increment: distributed per-work leasing, exhaustive absence investigation, semantic grouping across partition boundaries, automatic PDF section packing, per-check stored calculation history in the panel, project-wide quota coordination, and full-scale evaluation. Comparison/verifier membership and structured-output failures now split recursively after normal retries. Child packets use stable checkpoints; exhausted singleton checks receive explicit unverified findings while unrelated packets continue. Transport, authentication, cancellation and persistence failures still propagate.
+
+## 2026-09-21 — Batch-failure isolation
+
+A real review stopped after 64 of 834 checks because comparison packet 7 twice violated exact-ID membership. All 44 source sections had been inventoried/audited; that counter did not represent check completion. The previous pool treated this model-quality failure as fatal to the run.
+
+Exact-ID errors now identify missing, unexpected and duplicate IDs for the repair attempt. Typed membership/structured-output failures trigger recursive packet splitting. If one check still fails after retries, the harness records an unverified finding without accepting a model conclusion, and continues independent work. Parent recovery checkpoints include all child results so future resumes skip completed children. Fatal infrastructure errors and cancellation are not disguised as unverified findings.
+
+The UI separately labels source reading and processed/verified check counts. Unverified/needs-input rows use unresolved styling even if a legacy semantic verifier marked their explanation supported. Existing failed version-2 reviews can resume; no new review or database migration is required for this fix.

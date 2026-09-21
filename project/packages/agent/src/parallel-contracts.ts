@@ -32,15 +32,26 @@ export const verificationsSchema = z.object({
     z.object({ id: z.string(), verification: verificationSchema }),
   ),
 });
+export class BatchMembershipError extends Error {
+  constructor(actual: string[], expected: string[]) {
+    const missing = expected.filter((id) => !actual.includes(id));
+    const unexpected = actual.filter((id) => !expected.includes(id));
+    const duplicates = actual.filter(
+      (id, index) => actual.indexOf(id) !== index,
+    );
+    super(
+      `Return each requested ID exactly once; do not invent, duplicate, or omit IDs. Missing: ${missing.join(', ') || 'none'}. Unexpected: ${unexpected.join(', ') || 'none'}. Duplicates: ${duplicates.join(', ') || 'none'}.`,
+    );
+    this.name = 'BatchMembershipError';
+  }
+}
 export function exactIds(actual: string[], expected: string[]): void {
   if (
     actual.length !== expected.length ||
     new Set(actual).size !== actual.length ||
     actual.some((id) => !expected.includes(id))
   )
-    throw new Error(
-      'Return each requested ID exactly once; do not invent, duplicate, or omit IDs.',
-    );
+    throw new BatchMembershipError(actual, expected);
 }
 export function chunks<T>(items: readonly T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(items.length / size) }, (_, index) =>

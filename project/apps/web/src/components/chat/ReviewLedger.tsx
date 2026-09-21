@@ -137,8 +137,8 @@ export function ReviewLedger({
             Review questionnaire
           </h2>
           <p className="mt-1 text-[11px] text-zinc-500">
-            {checks.filter((check) => check.state === 'done').length} checked ·{' '}
-            {checks.length} discovered
+            {checks.filter((check) => check.state === 'done').length} processed
+            · {checks.length} discovered
           </p>
         </div>
         <div className="flex gap-2">
@@ -290,7 +290,7 @@ export function ReviewLedger({
                         {check.title}
                       </span>
                       <span
-                        className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding?.verified ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
+                        className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding?.verified && !['unverified', 'needs_input'].includes(check.finding.status) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
                       >
                         {check.state === 'done'
                           ? check.finding?.status.replaceAll('_', ' ')

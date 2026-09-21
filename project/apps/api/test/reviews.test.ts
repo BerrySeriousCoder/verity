@@ -542,37 +542,37 @@ test('a missing batched verification result cannot become a partial success', as
   const job = await reviews.claim();
   assert.ok(job);
   const base = createScriptedModel(policyId, quoteId, evidence);
-  await assert.rejects(
-    executeReview(
-      job,
-      {
-        reviews,
-        evidence,
-        model: {
-          async generate(role, instruction, input, schema, signal, onProgress) {
-            if (instruction.startsWith('Independently verify each'))
-              return {
-                value: schema.parse({ items: [] }),
-                inputTokens: 1,
-                outputTokens: 1,
-                model: 'test-double',
-              };
-            return base.generate(
-              role,
-              instruction,
-              input,
-              schema,
-              signal,
-              onProgress,
-            );
-          },
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, input, schema, signal, onProgress) {
+          if (instruction.startsWith('Independently verify each'))
+            return {
+              value: schema.parse({ items: [] }),
+              inputTokens: 1,
+              outputTokens: 1,
+              model: 'test-double',
+            };
+          return base.generate(
+            role,
+            instruction,
+            input,
+            schema,
+            signal,
+            onProgress,
+          );
         },
       },
-      new AbortController().signal,
-    ),
-    /each requested ID/,
+    },
+    new AbortController().signal,
   );
   const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.status, 'completed');
+  assert.equal(detail?.checks.length, 2);
+  assert.ok(detail?.checks.every((check) => check.state === 'done'));
   assert.equal(detail?.report?.complete, false);
   assert.ok(detail?.checks.every((check) => check.finding?.verified === false));
   await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
@@ -670,4 +670,58 @@ test('concurrent comparison packets merge every finding without overwriting prog
     24,
   );
   assert.equal(detail?.report?.complete, true);
+});
+
+test('invalid comparison batch splits into valid single checks without losing findings', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  let invalidBatches = 0;
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, input, schema, signal, onProgress) {
+          const payload = (input as { input: { bundles?: unknown[] } }).input;
+          if (
+            instruction.startsWith('Compare every') &&
+            (payload.bundles?.length ?? 0) > 1
+          ) {
+            invalidBatches++;
+            return {
+              value: schema.parse({ items: [] }),
+              model: 'test-double',
+              inputTokens: 1,
+              outputTokens: 1,
+            };
+          }
+          return base.generate(
+            role,
+            instruction,
+            input,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(invalidBatches, 2);
+  assert.equal(detail?.report?.complete, true);
+  assert.equal(detail?.report?.findings.length, 2);
+  assert.equal(
+    new Set(detail?.report?.findings.map((item) => item.id)).size,
+    2,
+  );
+  assert.ok(
+    (await reviews.events(LOCAL_WORKSPACE_ID, run.id)).some(
+      (event) => event.title === 'Recovering invalid batch',
+    ),
+  );
 });

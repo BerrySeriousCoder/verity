@@ -164,7 +164,7 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     name: 'Review questionnaire',
   });
   await expect(ledger).toBeVisible();
-  await expect(ledger.getByText('2 checked · 2 discovered')).toBeVisible();
+  await expect(ledger.getByText('2 processed · 2 discovered')).toBeVisible();
   await ledger
     .getByRole('button', { name: 'Full screen questionnaire' })
     .click();

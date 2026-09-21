@@ -402,9 +402,30 @@ export function App() {
                   <div className="mt-7 border-t border-zinc-800 pt-5">
                     <p className="font-mono text-[11px] text-zinc-500">
                       {detail.report.inventoriedUnits}/
-                      {detail.report.sourceUnits} source units inventoried ·{' '}
+                      {detail.report.sourceUnits} source sections read ·{' '}
                       {detail.report.auditedUnits} independently audited
                     </p>
+                    {detail.run.engineVersion >= 2 && (
+                      <p className="mt-2 text-xs text-zinc-400">
+                        {
+                          detail.checks.filter(
+                            (check) => check.state === 'done',
+                          ).length
+                        }{' '}
+                        / {detail.checks.length} checks processed ·{' '}
+                        {
+                          detail.checks.filter(
+                            (check) =>
+                              check.finding?.verified &&
+                              !['unverified', 'needs_input'].includes(
+                                check.finding.status,
+                              ),
+                          ).length
+                        }{' '}
+                        verified. Reading all source sections does not mean all
+                        checks are finished.
+                      </p>
+                    )}
                     {!detail.report.complete && (
                       <p className="mt-2 text-xs text-amber-400/80">
                         Unresolved checks or source limitations remain.
