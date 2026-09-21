@@ -105,3 +105,7 @@ Measure quality and cost on representative larger documents, then design the pos
 ## Parallel review increment — 2026-09-20
 
 New reviews use harness-scheduled concurrent source inventories and independent audits, membership-preserving canonical checks, and batched comparison/verification. PostgreSQL remains authoritative for checkpoints, worker state and questionnaire findings. Each worker has a separate live frontend thread; a collapsible/fullscreen questionnaire links checks to original evidence. Existing runs keep their pinned engine version. See [ADR 0008](decisions/0008-parallel-review-and-worker-threads.md) and [runtime LLD](lld/03-parallel-review.md) for exact boundaries and deferred distributed scheduling.
+
+## Confirmed document relationships — 2026-09-21
+
+Prompt-first reviews now support multiple policies and quotations through a user-confirmed relationship map. Each quotation obligation is routed to applicable groups before comparison; shared requirements retain separate group checks and uncertain applicability stays unresolved. Retrieval and verification enforce the selected group document boundaries. See [ADR 0009](decisions/0009-confirmed-document-relationships.md) and [relationship LLD](lld/04-document-relationships.md).

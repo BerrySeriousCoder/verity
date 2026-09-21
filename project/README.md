@@ -85,3 +85,13 @@ See [parallel runtime LLD](../docs/lld/03-parallel-review.md) for recovery, corr
 Comparison and verification requests intern identical resolved evidence objects once per request. Each check retains references to exactly its original evidence set; IDs, text and anchors are preserved. The compact representation is used only when it is smaller. This is serialization deduplication, not summarization or fewer verification checks. Original persisted tool outputs remain inspectable.
 
 The default request concurrency is six (override with `GEMINI_MAX_CONCURRENCY`). Existing 429 backoff remains active. Step events record queue time and model duration in milliseconds alongside token usage. Restart the worker after changing code/configuration before measuring a new run.
+
+## Multiple policies and quotations
+
+Attach all final policies and quotation files in the conversation and explain the intended comparison. Verity supports one quotation feeding several policies, several quotations feeding one policy, and grouped many-to-many relationships. It proposes named policy/quotation relationships and their applicability boundaries, then pauses for your confirmation before questionnaire creation. Reply with confirmation or corrections; a correction produces a new proposal.
+
+Both directions are reviewed within the confirmed groups. Shared quotation requirements can appear under several policy groups. Uncertain applicability remains visible and cannot be verified automatically. Review the proposed scope carefully: relationship discovery uses bounded source previews and semantic judgments, not a guaranteed interpretation of arbitrary policy packages.
+
+After updating, restart `pnpm dev` to apply migration 0006. An existing task waiting for document clarification can enter the new mapping flow with your next reply. Start a new task to change a relationship for an already-reviewed task.
+
+Additional live smoke test: `LIVE_MULTI_POLICY=1 pnpm test:live` (synthetic three-policy fixture; uses your Gemini key and incurs provider charges).

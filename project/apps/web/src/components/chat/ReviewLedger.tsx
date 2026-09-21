@@ -7,12 +7,12 @@ import { Finding } from './Timeline';
 function CheckEvidence({
   check,
   workspaceId,
-  policyId,
+  policyIds,
   onCitation,
 }: {
   check: ReviewCheck;
   workspaceId: string;
-  policyId: string;
+  policyIds: string[];
   onCitation: (id: string) => void;
 }) {
   const [sources, setSources] = useState<ResolvedEvidence[]>([]);
@@ -55,7 +55,8 @@ function CheckEvidence({
             </h4>
             {sources
               .filter(
-                (source) => (source.documentId === policyId) === (index === 0),
+                (source) =>
+                  policyIds.includes(source.documentId) === (index === 0),
               )
               .map((source) => (
                 <button
@@ -81,13 +82,13 @@ function CheckEvidence({
 export function ReviewLedger({
   checks,
   workspaceId,
-  policyId,
+  policyIds,
   onCitation,
   onClose,
 }: {
   checks: ReviewCheck[];
   workspaceId: string;
-  policyId: string;
+  policyIds: string[];
   onCitation: (id: string) => void;
   onClose: () => void;
 }) {
@@ -178,6 +179,12 @@ export function ReviewLedger({
               {current.category} · {current.state}
             </p>
             <h3 className="mb-4 text-base font-medium">{current.title}</h3>
+            {current.applicability && (
+              <p className="mb-4 text-xs leading-6 text-zinc-400">
+                Applicability: {current.applicability.reason}
+                {current.applicability.uncertain ? ' (uncertain)' : ''}
+              </p>
+            )}
             {current.finding && (
               <Finding finding={current.finding} onCitation={onCitation} />
             )}
@@ -191,7 +198,7 @@ export function ReviewLedger({
             <CheckEvidence
               check={current}
               workspaceId={workspaceId}
-              policyId={policyId}
+              policyIds={policyIds}
               onCitation={onCitation}
             />
             <details className="mt-5 rounded-lg border border-zinc-800 p-3">

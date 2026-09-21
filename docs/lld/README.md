@@ -28,3 +28,5 @@ Implemented: [immutable PDF upload and viewing](01-document-upload.md), followed
 Use the [LLD template](template.md). Drafting a dependent design may reveal a flaw in an earlier one; update the HLD and record the reason instead of treating the order as irreversible.
 
 Implemented parallel increment: [harness scheduling, canonical checks, worker streams and questionnaire](03-parallel-review.md).
+
+Implemented: [confirmed document relationships](04-document-relationships.md), including multi-policy/quotation roles, confirmation and applicability routing.

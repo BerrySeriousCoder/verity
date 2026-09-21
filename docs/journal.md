@@ -93,3 +93,9 @@ Inspected local failure metadata: comparison packet 7 failed exact-ID validation
 ## 2026-09-21 — Speed improvements before the next user test
 
 Added lossless request-local deduplication of repeated resolved evidence, increased default shared Gemini concurrency from four to six, and persisted queue/model timing in step events. Retained complete evidence content, original citation IDs, independent verification and adaptive 429 backoff. On 88 available prior-run evidence packets, serialization shrank 34.86%; actual next-run latency remains unmeasured. Unit reconstruction checks, database regression tests and a live Gemini smoke test validate the change. Multi-policy role support remains unchanged, so the proposed three-policy run is still diagnostic.
+
+## 2026-09-21 — Confirmed multi-policy and multi-quotation relationships
+
+Replaced the prompt-first single-policy restriction with plural policy roles and persisted relationship proposals. Every new proposal waits for user confirmation; corrections require fresh confirmation. Added relationship-specific quotation routing, shared-requirement expansion, uncertain applicability preservation, group-restricted retrieval and verification, and plural-policy attachments/report citations. Existing unresolved tasks can use the new flow; resolved historical runs retain their scope.
+
+Validation: strict types, unit tests and production build pass; 28 database integration tests and both browser tests pass. A live synthetic three-policy/one-quotation test completed in 24 model calls with a confirmed three-group mapping and a complete verified report. Two quotations feeding one policy and a many-to-many mapping are covered by deterministic integration tests. No full private-document review was restarted automatically. The limits of sampled inspection and semantic routing are documented in ADR 0009 and the relationship LLD.

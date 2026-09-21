@@ -211,7 +211,7 @@ export function App() {
   }
 
   const attachmentIds = detail
-    ? [detail.run.policyId, ...detail.run.quotationIds]
+    ? [...detail.run.policyIds, ...detail.run.quotationIds]
     : attached;
   const attachments = documents.filter((document) =>
     attachmentIds.includes(document.id),
@@ -586,7 +586,7 @@ export function App() {
           key={active}
           checks={detail.checks ?? []}
           workspaceId={workspace.id}
-          policyId={detail.run.policyId}
+          policyIds={detail.run.policyIds}
           onCitation={(id) => void openCitation(id)}
           onClose={() => setLedgerOpen(false)}
         />

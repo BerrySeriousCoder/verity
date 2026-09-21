@@ -1,5 +1,7 @@
 # Architecture decision records
 
+[0009 — Confirmed document relationships](0009-confirmed-document-relationships.md): many-to-many document roles, user confirmation, applicability routing and per-group evidence isolation.
+
 [0008 — Parallel reviews and individual worker threads](0008-parallel-review-and-worker-threads.md): harness-owned concurrency, batched verification, raw membership preservation, and a live questionnaire.
 
 [0007 — Prompt-first agent workspace with durable activity](0007-prompt-first-agent-workspace.md): natural-language task entry, persisted event timeline, SSE replay, visible tools, and public progress summaries.

@@ -134,6 +134,20 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     new AbortController().signal,
   );
 
+  await expect(page.getByText(/Please confirm this mapping/)).toBeVisible();
+  await page.getByLabel('Message Verity').fill('Yes, confirm this mapping.');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(
+    page.getByText('Yes, confirm this mapping.', { exact: true }),
+  ).toBeVisible();
+  const confirmed = await reviews.claim();
+  if (!confirmed) throw new Error('Expected confirmed review job');
+  await executeReview(
+    confirmed,
+    { reviews, evidence, model: scriptedModel(policy.id, quote.id, evidence) },
+    new AbortController().signal,
+  );
+
   await expect(
     page
       .getByText(
@@ -143,7 +157,7 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
   ).toBeVisible();
   await expect(page.getByText(/Finished checking/)).toBeVisible();
   await expect(
-    page.getByText('Flood limit', { exact: true }).first(),
+    page.getByText('[Flood] Flood limit', { exact: true }).first(),
   ).toBeVisible();
   const activity = page
     .locator('details')
@@ -191,7 +205,7 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
   await page.reload();
   await expect(page.getByText(/Finished checking/)).toBeVisible();
   await expect(
-    page.getByText('Flood limit', { exact: true }).first(),
+    page.getByText('[Flood] Flood limit', { exact: true }).first(),
   ).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
