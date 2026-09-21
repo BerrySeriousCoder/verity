@@ -14,10 +14,25 @@ export interface ReviewScope {
   confirmed: boolean;
 }
 
+export interface DocumentRelationship {
+  id: string;
+  title: string;
+  policyIds: string[];
+  quotationIds: string[];
+  description: string;
+}
+export interface DocumentRelationships {
+  confirmed: boolean;
+  proposedRevision: number;
+  groups: DocumentRelationship[];
+}
+
 export interface ReviewRun {
   id: string;
   workspaceId: string;
   policyId: string;
+  policyIds: string[];
+  documentRelationships: DocumentRelationships | null;
   quotationIds: string[];
   task: string;
   rolesResolved: boolean;
@@ -61,6 +76,7 @@ export interface ReviewEvent {
 }
 
 export interface ReviewFinding {
+  relationshipId?: string;
   id: string;
   title: string;
   category: string;
@@ -84,6 +100,8 @@ export interface ReviewReport {
 }
 
 export interface ReviewCheck {
+  relationshipId?: string;
+  applicability?: { uncertain: boolean; reason: string };
   id: string;
   title: string;
   category: string;

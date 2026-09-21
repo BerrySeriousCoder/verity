@@ -24,6 +24,7 @@ import { batchBlocks, validateInventory } from './inventory.js';
 import { calculate } from './calculation.js';
 import { recentContext, boundedItems } from './context.js';
 import { parallelReview, type WorkerIdentity } from './parallel-review.js';
+import { establishRelationships } from './relationships.js';
 import { RequestScheduler } from './scheduler.js';
 const requestScheduler = new RequestScheduler();
 
@@ -41,7 +42,7 @@ export async function executeReview(
   const { reviews, evidence } = dependencies;
   const model = dependencies.model;
   const run = job.run;
-  const documentIds = [run.policyId, ...run.quotationIds];
+  const documentIds = [...run.policyIds, ...run.quotationIds];
   await reviews.emit(job, 'assistant', 'Working', {
     text: run.revision
       ? 'I’m continuing with your clarification and checking the affected conclusions again.'
@@ -131,19 +132,23 @@ export async function executeReview(
         signal.throwIfAborted();
         const label =
           worker?.title ??
-          (key.startsWith('scope')
-            ? 'Plan the review'
-            : key.startsWith('roles')
-              ? 'Identify attached documents'
-              : key.startsWith('inventory')
-                ? 'Extract source obligations'
-                : key.startsWith('audit')
-                  ? 'Independently audit coverage'
-                  : key.startsWith('verify')
-                    ? 'Verify cited evidence'
-                    : key.startsWith('answers')
-                      ? 'Read your clarification'
-                      : 'Choose the next evidence check');
+          (key.startsWith('relationships/proposal')
+            ? 'Map document relationships'
+            : key.startsWith('relationships/confirmation')
+              ? 'Confirm document relationships'
+              : key.startsWith('scope')
+                ? 'Plan the review'
+                : key.startsWith('roles')
+                  ? 'Identify attached documents'
+                  : key.startsWith('inventory')
+                    ? 'Extract source obligations'
+                    : key.startsWith('audit')
+                      ? 'Independently audit coverage'
+                      : key.startsWith('verify')
+                        ? 'Verify cited evidence'
+                        : key.startsWith('answers')
+                          ? 'Read your clarification'
+                          : 'Choose the next evidence check');
         const attemptCallId = `${key}/${job.leaseToken}/attempt-${attempt + 1}`;
         let result;
         const queuedAt = Date.now();
@@ -343,6 +348,12 @@ export async function executeReview(
           )
         : [],
     });
+  }
+  if (!run.rolesResolved && run.engineVersion >= 2) {
+    if (
+      !(await establishRelationships({ job, reviews, evidence, sources, call }))
+    )
+      return;
   }
   if (!run.rolesResolved) {
     const roleSchema = z.object({

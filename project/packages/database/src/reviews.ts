@@ -9,9 +9,10 @@ import type {
   ReviewEvent,
   ReviewCheck,
   ReviewWorkItem,
+  DocumentRelationships,
 } from '@verity/core';
 
-const columns = `engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `policy_ids AS "policyIds", document_relationships AS "documentRelationships", engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export interface ReviewJob {
   run: ReviewRun;
   leaseToken: string;
@@ -40,7 +41,7 @@ export function reviewRepository(pool: Pool) {
           'A selected document is unavailable in this workspace.',
         );
       const result = await pool.query<ReviewRun>(
-        `WITH created AS (INSERT INTO review_runs(id,workspace_id,policy_id,quotation_ids,task,reviewer_model,auditor_model,roles_resolved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *), event AS (INSERT INTO review_events(run_id,kind,title,data) SELECT id,'user','User message',jsonb_build_object('text',task) FROM created) SELECT ${columns} FROM created`,
+        `WITH created AS (INSERT INTO review_runs(id,workspace_id,policy_id,policy_ids,quotation_ids,task,reviewer_model,auditor_model,roles_resolved) VALUES ($1,$2,$3,ARRAY[$3]::uuid[],$4,$5,$6,$7,$8) RETURNING *), event AS (INSERT INTO review_events(run_id,kind,title,data) SELECT id,'user','User message',jsonb_build_object('text',task) FROM created) SELECT ${columns} FROM created`,
         [
           randomUUID(),
           input.workspaceId,
@@ -101,7 +102,7 @@ export function reviewRepository(pool: Pool) {
       policyId: string,
       quotationIds: string[],
     ): Promise<void> {
-      const original = [job.run.policyId, ...job.run.quotationIds];
+      const original = [...job.run.policyIds, ...job.run.quotationIds];
       const selected = [policyId, ...quotationIds];
       if (
         new Set(selected).size !== original.length ||
@@ -112,13 +113,76 @@ export function reviewRepository(pool: Pool) {
           'Document roles must account for each attached document exactly once.',
         );
       const result = await pool.query(
-        "UPDATE review_runs SET policy_id=$3,quotation_ids=$4,roles_resolved=true WHERE id=$1 AND lease_token=$2 AND status='running'",
+        "UPDATE review_runs SET policy_id=$3,policy_ids=ARRAY[$3]::uuid[],quotation_ids=$4,roles_resolved=true WHERE id=$1 AND lease_token=$2 AND status='running'",
         [job.run.id, job.leaseToken, policyId, quotationIds],
       );
       if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
       job.run.policyId = policyId;
+      job.run.policyIds = [policyId];
       job.run.quotationIds = quotationIds;
       job.run.rolesResolved = true;
+    },
+    async assignRelationships(
+      job: ReviewJob,
+      policyIds: string[],
+      quotationIds: string[],
+      relationships: DocumentRelationships,
+    ): Promise<void> {
+      const original = [...job.run.policyIds, ...job.run.quotationIds];
+      const assigned = [...policyIds, ...quotationIds];
+      if (
+        !policyIds.length ||
+        !quotationIds.length ||
+        assigned.length !== original.length ||
+        new Set(assigned).size !== original.length ||
+        assigned.some((id) => !original.includes(id))
+      )
+        throw new Error(
+          'Assign every attached document exactly once to a policy or quotation role.',
+        );
+      if (
+        !relationships.groups.length ||
+        relationships.groups.some(
+          (group) =>
+            !group.policyIds.length ||
+            !group.quotationIds.length ||
+            group.policyIds.some((id) => !policyIds.includes(id)) ||
+            group.quotationIds.some((id) => !quotationIds.includes(id)),
+        )
+      )
+        throw new Error(
+          'Each relationship must connect assigned policies and quotations.',
+        );
+      if (
+        assigned.some(
+          (id) =>
+            !relationships.groups.some((group) =>
+              [...group.policyIds, ...group.quotationIds].includes(id),
+            ),
+        )
+      )
+        throw new Error('Every document needs an explicit relationship.');
+      const result = await pool.query(
+        "UPDATE review_runs SET policy_id=$3,policy_ids=$4,quotation_ids=$5,document_relationships=$6,roles_resolved=$7 WHERE id=$1 AND lease_token=$2 AND status='running' AND revision=$8",
+        [
+          job.run.id,
+          job.leaseToken,
+          policyIds[0],
+          policyIds,
+          quotationIds,
+          JSON.stringify(relationships),
+          relationships.confirmed,
+          job.run.revision,
+        ],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
+      Object.assign(job.run, {
+        policyId: policyIds[0]!,
+        policyIds,
+        quotationIds,
+        documentRelationships: relationships,
+        rolesResolved: relationships.confirmed,
+      });
     },
     async message(
       workspaceId: string,
@@ -263,6 +327,13 @@ export function reviewRepository(pool: Pool) {
       } finally {
         client.release();
       }
+    },
+    async removeDraftCheck(job: ReviewJob, id: string): Promise<void> {
+      const result = await pool.query(
+        `WITH owned AS (SELECT id FROM review_runs WHERE id=$1 AND lease_token=$2 AND status='running' AND revision=$3 FOR UPDATE), removed AS (DELETE FROM review_checks WHERE run_id IN (SELECT id FROM owned) AND revision=$3 AND id=$4 RETURNING id) SELECT id FROM owned`,
+        [job.run.id, job.leaseToken, job.run.revision, id],
+      );
+      if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
     },
     async saveCheck(job: ReviewJob, check: ReviewCheck): Promise<void> {
       const result = await pool.query(

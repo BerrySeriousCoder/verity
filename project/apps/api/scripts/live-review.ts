@@ -32,22 +32,52 @@ try {
   const documents = documentRepository(pool),
     evidence = evidenceRepository(pool),
     reviews = reviewRepository(pool);
+  const multi = process.env['LIVE_MULTI_POLICY'] === '1';
   const pdf = await PDFDocument.create();
-  pdf.addPage([560, 720]).drawText('Policy: flood extension limit USD 1250.', {
-    x: 40,
-    y: 650,
-    size: 14,
-  });
+  pdf
+    .addPage([560, 720])
+    .drawText(
+      multi
+        ? 'North site policy: flood limit USD 1250.'
+        : 'Policy: flood extension limit USD 1250.',
+      {
+        x: 40,
+        y: 650,
+        size: 14,
+      },
+    );
   const fixtures = [
     { filename: 'policy.pdf', format: 'pdf' as const, bytes: await pdf.save() },
     {
       filename: 'quotation.csv',
       format: 'csv' as const,
       bytes: new TextEncoder().encode(
-        'Coverage,Limit,Currency\nFlood extension,1500,USD',
+        multi
+          ? 'Site,Coverage,Limit,Currency\nNorth,Flood extension,1500,USD\nSouth,Flood extension,2500,USD\nWest,Flood extension,3500,USD'
+          : 'Coverage,Limit,Currency\nFlood extension,1500,USD',
       ),
     },
   ];
+  if (multi) {
+    for (const [site, limit] of [
+      ['South', 2500],
+      ['West', 3500],
+    ] as const) {
+      const extra = await PDFDocument.create();
+      extra
+        .addPage([560, 720])
+        .drawText(`${site} site final policy: flood limit USD ${limit}.`, {
+          x: 40,
+          y: 650,
+          size: 14,
+        });
+      fixtures.push({
+        filename: `${site.toLowerCase()}-policy.pdf`,
+        format: 'pdf',
+        bytes: await extra.save(),
+      });
+    }
+  }
   const ids: string[] = [];
   for (const fixture of fixtures) {
     const document = await documents.insertOrFind({
@@ -73,8 +103,13 @@ try {
   const run = await reviews.create({
     workspaceId: LOCAL_WORKSPACE_ID,
     policyId: ids[0]!,
-    quotationIds: [ids[1]!],
-    task: 'Compare only the stated flood extension limit and currency in both directions. Report differences. Do not check other coverages, dates, or terms.',
+    quotationIds: ids.slice(1),
+    inferRoles: multi,
+    task:
+      (multi
+        ? 'All three PDFs are final policies for North, South and West sites from one quotation.csv. Map each to its site in the quotation. '
+        : '') +
+      'Compare only the stated flood extension limit and currency in both directions. Report differences. Do not check other coverages, dates, or terms.',
     reviewerModel: reviewer,
     auditorModel: auditor,
   });
@@ -85,11 +120,34 @@ try {
     { reviews, evidence, model: geminiModel(key, reviewer, auditor) },
     AbortSignal.timeout(10 * 60 * 1000),
   );
+  if (multi) {
+    const proposed = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+    if (
+      proposed?.run.status !== 'needs_context' ||
+      proposed.run.policyIds.length !== 3 ||
+      !proposed.run.documentRelationships?.groups.length ||
+      proposed.checks.length
+    )
+      throw new Error('Expected a three-policy proposal before any checks.');
+    await reviews.message(
+      LOCAL_WORKSPACE_ID,
+      run.id,
+      'Yes, I confirm this mapping. Compare all three site policies to their corresponding quotation rows.',
+    );
+    const confirmed = await reviews.claim();
+    if (!confirmed) throw new Error('Expected confirmed job');
+    await executeReview(
+      confirmed,
+      { reviews, evidence, model: geminiModel(key, reviewer, auditor) },
+      AbortSignal.timeout(10 * 60 * 1000),
+    );
+  }
   const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
   console.info(
     JSON.stringify(
       {
         status: detail?.run.status,
+        relationships: detail?.run.documentRelationships,
         modelCalls: detail?.run.modelCalls,
         inputTokens: detail?.run.inputTokens,
         outputTokens: detail?.run.outputTokens,

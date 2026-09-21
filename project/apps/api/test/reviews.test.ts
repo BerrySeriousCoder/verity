@@ -736,3 +736,312 @@ test('invalid comparison batch splits into valid single checks without losing fi
     ),
   );
 });
+
+async function extraDocument(filename: string) {
+  const id = randomUUID();
+  const document = await documentRepository(pool).insertOrFind({
+    id,
+    workspaceId: LOCAL_WORKSPACE_ID,
+    filename,
+    sha256: id.replaceAll('-', '').repeat(2),
+    byteSize: 100,
+    pageCount: 1,
+    format: 'pdf',
+    createdAt: new Date().toISOString(),
+  });
+  const extraction = await evidence.claimExtraction();
+  assert.ok(extraction);
+  await evidence.complete(extraction, [
+    {
+      kind: 'pdf_page',
+      label: 'Page 1',
+      locator: { pageIndex: 0 },
+      warnings: [],
+      blocks: [
+        {
+          text: 'Flood extension limit 1250.',
+          anchor: {
+            kind: 'pdf',
+            pageIndex: 0,
+            rectangles: [[10, 10, 100, 25]],
+          },
+        },
+      ],
+    },
+  ]);
+  return document.id;
+}
+
+for (const shape of [
+  'three-policies',
+  'two-quotations',
+  'many-to-many',
+] as const) {
+  test(`confirmed relationships support ${shape} and isolate evidence`, async () => {
+    const extras =
+      shape === 'three-policies'
+        ? [
+            await extraDocument('second-policy.pdf'),
+            await extraDocument('third-policy.pdf'),
+          ]
+        : shape === 'many-to-many'
+          ? [
+              await extraDocument('another-policy.pdf'),
+              await extraDocument('another-quotation.pdf'),
+            ]
+          : [await extraDocument('second-quotation.pdf')];
+    const policyIds =
+      shape === 'three-policies'
+        ? [policyId, ...extras]
+        : shape === 'many-to-many'
+          ? [policyId, extras[0]!]
+          : [policyId];
+    const quotationIds =
+      shape === 'three-policies'
+        ? [quoteId]
+        : shape === 'many-to-many'
+          ? [quoteId, extras[1]!]
+          : [quoteId, ...extras];
+    const groups = policyIds.map((id, index) => ({
+      id: `group-${index}`,
+      title: `Policy ${index + 1}`,
+      policyIds: [id],
+      quotationIds,
+      description: 'Flood limits applicable to this policy.',
+    }));
+    const run = await reviews.create({
+      workspaceId: LOCAL_WORKSPACE_ID,
+      policyId,
+      quotationIds: [quoteId, ...extras],
+      inferRoles: true,
+      task: 'Compare all supplied final policies against the applicable quotation requirements in both directions.',
+      reviewerModel: 'test-double',
+      auditorModel: 'test-double',
+    });
+    const base = createScriptedModel(policyId, quoteId, evidence);
+    const model: typeof base = {
+      async generate(role, instruction, raw, schema, signal, onProgress) {
+        const input = (raw as { input: Record<string, unknown> }).input;
+        if (instruction.startsWith('Map the attached'))
+          return {
+            value: schema.parse({
+              policyIds,
+              quotationIds,
+              groups,
+              question: null,
+            }),
+            model: 'test-double',
+            inputTokens: 1,
+            outputTokens: 1,
+          };
+        if (instruction.startsWith('Assign each quotation')) {
+          const items = input['items'] as { check: { id: string } }[];
+          return {
+            value: schema.parse({
+              items: items.map((item) => ({
+                id: item.check.id,
+                groupIds: groups.map((group) => group.id),
+                uncertain: false,
+                reason:
+                  'Shared flood requirement applies to the named policies.',
+              })),
+            }),
+            model: 'test-double',
+            inputTokens: 1,
+            outputTokens: 1,
+          };
+        }
+        if (instruction.startsWith('Compare every')) {
+          const bundles = input['bundles'] as {
+            relationship: { policyIds: string[]; quotationIds: string[] };
+            evidence: { documentId: string }[];
+          }[];
+          for (const bundle of bundles)
+            assert.ok(
+              bundle.evidence.every((block) =>
+                [
+                  ...bundle.relationship.policyIds,
+                  ...bundle.relationship.quotationIds,
+                ].includes(block.documentId),
+              ),
+              'unrelated policy evidence must not leak into a comparison',
+            );
+        }
+        return base.generate(
+          role,
+          instruction,
+          raw,
+          schema,
+          signal,
+          onProgress,
+        );
+      },
+    };
+    const first = await reviews.claim();
+    assert.ok(first);
+    await executeReview(
+      first,
+      { reviews, evidence, model },
+      new AbortController().signal,
+    );
+    const proposal = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+    assert.equal(proposal?.run.status, 'needs_context');
+    assert.equal(proposal?.run.documentRelationships?.confirmed, false);
+    assert.equal(
+      proposal?.checks.length,
+      0,
+      'no questionnaire before confirmation',
+    );
+    assert.deepEqual(proposal?.run.policyIds, policyIds);
+    assert.equal(
+      await reviews.message(
+        LOCAL_WORKSPACE_ID,
+        run.id,
+        'Yes, confirm these relationships.',
+      ),
+      true,
+    );
+    const confirmed = await reviews.claim();
+    assert.ok(confirmed);
+    await executeReview(
+      confirmed,
+      { reviews, evidence, model },
+      new AbortController().signal,
+    );
+    const result = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+    assert.equal(result?.run.documentRelationships?.confirmed, true);
+    assert.equal(result?.report?.complete, true);
+    assert.equal(result?.checks.length, shape === 'two-quotations' ? 3 : 6);
+    assert.ok(result?.checks.every((check) => check.relationshipId));
+    assert.ok(
+      policyIds.every((id) =>
+        result?.checks.some(
+          (check) =>
+            check.direction === 'policy_to_quotation' &&
+            check.members.some((member) => member.documentId === id),
+        ),
+      ),
+    );
+  });
+}
+
+test('a relationship correction requires a fresh confirmation before review', async () => {
+  const run = await reviews.create({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    policyId,
+    quotationIds: [quoteId],
+    inferRoles: true,
+    task: 'Compare these documents.',
+    reviewerModel: 'test-double',
+    auditorModel: 'test-double',
+  });
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  const model: typeof base = {
+    async generate(role, instruction, input, schema, signal, onProgress) {
+      if (instruction.startsWith('Determine whether the latest'))
+        return {
+          value: schema.parse({ action: 'revise', question: null }),
+          model: 'test-double',
+          inputTokens: 1,
+          outputTokens: 1,
+        };
+      return base.generate(
+        role,
+        instruction,
+        input,
+        schema,
+        signal,
+        onProgress,
+      );
+    },
+  };
+  const first = await reviews.claim();
+  assert.ok(first);
+  await executeReview(
+    first,
+    { reviews, evidence, model },
+    new AbortController().signal,
+  );
+  await reviews.message(
+    LOCAL_WORKSPACE_ID,
+    run.id,
+    'No, change the proposed mapping.',
+  );
+  const second = await reviews.claim();
+  assert.ok(second);
+  await executeReview(
+    second,
+    { reviews, evidence, model },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.status, 'needs_context');
+  assert.equal(detail?.run.rolesResolved, false);
+  assert.equal(detail?.checks.length, 0);
+  assert.equal(detail?.run.documentRelationships?.proposedRevision, 1);
+  await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
+});
+
+test('uncertain quotation applicability stays visible and cannot be verified', async () => {
+  const run = await reviews.create({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    policyId,
+    quotationIds: [quoteId],
+    inferRoles: true,
+    task: 'Compare flood limits.',
+    reviewerModel: 'test-double',
+    auditorModel: 'test-double',
+  });
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  const model: typeof base = {
+    async generate(role, instruction, raw, schema, signal, onProgress) {
+      if (instruction.startsWith('Assign each quotation')) {
+        const input = (raw as { input: { items: { check: { id: string } }[] } })
+          .input;
+        return {
+          value: schema.parse({
+            items: input.items.map((item) => ({
+              id: item.check.id,
+              groupIds: [],
+              uncertain: true,
+              reason:
+                'The source does not establish which policy this requirement applies to.',
+            })),
+          }),
+          model: 'test-double',
+          inputTokens: 1,
+          outputTokens: 1,
+        };
+      }
+      return base.generate(role, instruction, raw, schema, signal, onProgress);
+    },
+  };
+  let job = await reviews.claim();
+  assert.ok(job);
+  await executeReview(
+    job,
+    { reviews, evidence, model },
+    new AbortController().signal,
+  );
+  await reviews.message(LOCAL_WORKSPACE_ID, run.id, 'Yes, confirm.');
+  job = await reviews.claim();
+  assert.ok(job);
+  await executeReview(
+    job,
+    { reviews, evidence, model },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  const uncertain = detail?.checks.filter(
+    (check) => check.applicability?.uncertain,
+  );
+  assert.equal(uncertain?.length, 1);
+  assert.equal(uncertain?.[0]?.finding?.verified, false);
+  assert.equal(uncertain?.[0]?.finding?.status, 'unverified');
+  assert.equal(detail?.report?.complete, false);
+  assert.equal(
+    detail?.checks.flatMap((check) => check.members).length,
+    4,
+    'no original observation is lost',
+  );
+});

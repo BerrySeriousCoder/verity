@@ -223,8 +223,10 @@ export function registerReviewRoutes(
           scope: detail.run.scope,
           documents: {
             policy: detail.run.policyId,
+            policies: detail.run.policyIds,
             quotations: detail.run.quotationIds,
           },
+          relationships: detail.run.documentRelationships,
           report: detail.report,
           citations: await evidence.resolve(
             request.params.workspaceId,
@@ -235,7 +237,7 @@ export function registerReviewRoutes(
                 ),
               ),
             ],
-            [detail.run.policyId, ...detail.run.quotationIds],
+            [...detail.run.policyIds, ...detail.run.quotationIds],
           ),
           models: {
             reviewer: detail.run.reviewerModel,

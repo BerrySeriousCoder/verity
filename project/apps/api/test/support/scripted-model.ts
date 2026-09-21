@@ -34,7 +34,34 @@ export function scriptedModel(
       await onProgress?.(
         'Inspecting the supplied evidence before choosing the next step.',
       );
-      if (instruction.startsWith('Identify'))
+      if (instruction.startsWith('Map the attached'))
+        value = {
+          policyIds: [policyId],
+          quotationIds: [quoteId],
+          groups: [
+            {
+              id: 'flood',
+              title: 'Flood',
+              policyIds: [policyId],
+              quotationIds: [quoteId],
+              description: 'Flood limits for this policy.',
+            },
+          ],
+          question: null,
+        };
+      else if (instruction.startsWith('Determine whether the latest'))
+        value = { action: 'accept', question: null };
+      else if (instruction.startsWith('Assign each quotation')) {
+        const items = input['items'] as { check: { id: string } }[];
+        value = {
+          items: items.map((item) => ({
+            id: item.check.id,
+            groupIds: ['flood'],
+            uncertain: false,
+            reason: 'Flood requirement applies to the confirmed policy.',
+          })),
+        };
+      } else if (instruction.startsWith('Identify'))
         value = { policyId, quotationIds: [quoteId], question: null };
       else if (instruction.startsWith('Propose'))
         value = {
