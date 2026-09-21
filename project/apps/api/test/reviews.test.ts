@@ -393,11 +393,22 @@ test('parallel review retains all raw members and exposes independent live worke
       (check) => check.state === 'done' && check.finding?.verified,
     ),
   );
-  assert.ok(peak > 1 && peak <= 4, `observed concurrency ${peak}`);
+  assert.ok(
+    peak > 1 && peak <= Number(process.env['GEMINI_MAX_CONCURRENCY'] ?? 6),
+    `observed concurrency ${peak}`,
+  );
   assert.ok(detail?.workers.some((worker) => worker.role === 'auditor'));
   assert.ok(detail?.workers.every((worker) => worker.status === 'completed'));
   assert.ok(detail!.run.modelCalls < 15);
   const events = await reviews.events(LOCAL_WORKSPACE_ID, run.id);
+  assert.ok(
+    events.some(
+      (event) =>
+        event.kind === 'step_result' &&
+        typeof event.data['durationMs'] === 'number' &&
+        typeof event.data['queueMs'] === 'number',
+    ),
+  );
   assert.ok(
     events.some(
       (event) => event.kind === 'assistant_delta' && event.data['workerId'],

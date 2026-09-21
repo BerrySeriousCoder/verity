@@ -89,3 +89,7 @@ See ADR 0008 and the parallel runtime LLD for implementation boundaries: schedul
 ## 2026-09-21 — Recover malformed comparison and verification batches
 
 Inspected local failure metadata: comparison packet 7 failed exact-ID validation in the 834-check review; 44/44 referred to source units, not completed comparisons. Added typed membership diagnostics, recursive packet splitting, checkpointed child-result recovery, and explicit unverified singleton outcomes so model formatting failures do not stop unrelated checks. Clarified source/check counters and unresolved status styling. Added regression coverage for successful smaller-batch recovery and persistent verifier omissions. The user's failed review was not automatically restarted or sent to Gemini.
+
+## 2026-09-21 — Speed improvements before the next user test
+
+Added lossless request-local deduplication of repeated resolved evidence, increased default shared Gemini concurrency from four to six, and persisted queue/model timing in step events. Retained complete evidence content, original citation IDs, independent verification and adaptive 429 backoff. On 88 available prior-run evidence packets, serialization shrank 34.86%; actual next-run latency remains unmeasured. Unit reconstruction checks, database regression tests and a live Gemini smoke test validate the change. Multi-policy role support remains unchanged, so the proposed three-policy run is still diagnostic.

@@ -334,7 +334,13 @@ export function reviewRepository(pool: Pool) {
       key: string,
       output: unknown,
       role: string,
-      usage?: { model: string; inputTokens: number; outputTokens: number },
+      usage?: {
+        model: string;
+        inputTokens: number;
+        outputTokens: number;
+        queueMs?: number;
+        durationMs?: number;
+      },
       eventCallId = key,
       workerId?: string,
     ): Promise<void> {
@@ -384,6 +390,8 @@ export function reviewRepository(pool: Pool) {
         if (saved.rowCount && usage) {
           const encoded = JSON.stringify({
             workerId,
+            queueMs: usage.queueMs,
+            durationMs: usage.durationMs,
             output,
             role,
             model: usage?.model ?? null,
@@ -400,6 +408,8 @@ export function reviewRepository(pool: Pool) {
               encoded.length > 120000
                 ? JSON.stringify({
                     workerId,
+                    queueMs: usage.queueMs,
+                    durationMs: usage.durationMs,
                     preview: encoded.slice(0, 110000),
                     truncated: true,
                   })

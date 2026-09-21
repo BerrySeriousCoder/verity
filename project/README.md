@@ -72,10 +72,16 @@ A source block must appear in an obligation or a reasoned exclusion in both inde
 
 New tasks use engine version 2. Existing tasks retain their original engine and checkpoints; start a new task with the same files to use batching.
 
-The harness shares four simultaneous Gemini request slots across inventory, independent audit, grouping, comparison, and verification. Set `GEMINI_MAX_CONCURRENCY` to change this. Optional `GEMINI_RPM` and `GEMINI_INPUT_TPM` mirror your actual project quotas; these pace requests and do not impose a smaller model output budget. Limits are process-local: running several worker processes requires coordinated quota allocation. Provider 429s reduce concurrency with cooldown; successful calls gradually restore it.
+The harness shares six simultaneous Gemini request slots across inventory, independent audit, grouping, comparison, and verification. Set `GEMINI_MAX_CONCURRENCY` to change this. Optional `GEMINI_RPM` and `GEMINI_INPUT_TPM` mirror your actual project quotas; these pace requests and do not impose a smaller model output budget. Limits are process-local: running several worker processes requires coordinated quota allocation. Provider 429s reduce concurrency with cooldown; successful calls gradually restore it.
 
 Adjacent spreadsheet row units are paired (normally around 60 populated rows), then split by text size. PDFs retain page units. Independent inventory and audit workers run concurrently. Canonical checks retain every raw observation, and comparison/verification operate in packets of eight. An incomplete packet cannot silently drop checks.
 
 Each worker has a separate live thread with its tools, progress summaries, status, collapse control, and focused view. Open **Questionnaire** for live checks, search/status filtering, original observations, verification results, and policy/quotation citations. Expand the panel to full screen for inspection. Clicking **View worker activity** focuses the corresponding worker even when older threads are hidden.
 
 See [parallel runtime LLD](../docs/lld/03-parallel-review.md) for recovery, correctness gates, and current limitations. This release has no measured large-document speedup claim; test the same documents and scope before comparing elapsed time and accuracy.
+
+### Request efficiency
+
+Comparison and verification requests intern identical resolved evidence objects once per request. Each check retains references to exactly its original evidence set; IDs, text and anchors are preserved. The compact representation is used only when it is smaller. This is serialization deduplication, not summarization or fewer verification checks. Original persisted tool outputs remain inspectable.
+
+The default request concurrency is six (override with `GEMINI_MAX_CONCURRENCY`). Existing 429 backoff remains active. Step events record queue time and model duration in milliseconds alongside token usage. Restart the worker after changing code/configuration before measuring a new run.

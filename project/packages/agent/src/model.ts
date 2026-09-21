@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { z } from 'zod';
+import { compactEvidence } from './prompt-evidence.js';
 import { publicSummaryPrefix } from './public-summary.js';
 
 const geminiSchemaKeys = new Set([
@@ -93,7 +94,7 @@ export function geminiModel(
   return {
     async generate(role, instruction, input, schema, signal, onProgress) {
       const model = role === 'auditor' ? auditorModel : reviewerModel;
-      const prompt = JSON.stringify(input);
+      const prompt = JSON.stringify(compactEvidence(input));
       const envelope = z.object({
         publicSummary: z.string().max(600),
         result: schema,

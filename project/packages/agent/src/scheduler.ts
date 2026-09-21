@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { ReviewModel } from './model.js';
 
 export function concurrencySetting(): number {
-  const value = Number(process.env['GEMINI_MAX_CONCURRENCY'] ?? 4);
+  const value = Number(process.env['GEMINI_MAX_CONCURRENCY'] ?? 6);
   if (!Number.isInteger(value) || value < 1 || value > 32)
     throw new Error(
       'GEMINI_MAX_CONCURRENCY must be an integer between 1 and 32.',

@@ -34,7 +34,7 @@ Parallel pools stop dequeuing after failure and drain active siblings before ret
 
 ## Provider scheduling
 
-Default maximum: four concurrent model requests in one process, configurable with `GEMINI_MAX_CONCURRENCY`. Optional `GEMINI_RPM` and `GEMINI_INPUT_TPM` pace dispatch in a rolling minute. Input tokens are estimated conservatively from serialized request length; this is not a provider-token guarantee. Actual usage is recorded separately. An input packet exceeding configured TPM fails visibly instead of waiting forever.
+Default maximum: six concurrent model requests in one process, configurable with `GEMINI_MAX_CONCURRENCY`. Optional `GEMINI_RPM` and `GEMINI_INPUT_TPM` pace dispatch in a rolling minute. Input tokens are estimated conservatively from serialized request length; this is not a provider-token guarantee. Actual usage is recorded separately. An input packet exceeding configured TPM fails visibly instead of waiting forever.
 
 A surfaced 429 halves dispatch capacity and introduces a jittered cooldown. Sustained success restores capacity gradually. SDK transport retries remain active and may perform additional provider attempts within one scheduled request. Transient surfaced HTTP failures can retry the structured step once. No application output-token cap or model-call budget was added.
 
@@ -63,3 +63,11 @@ A real review stopped after 64 of 834 checks because comparison packet 7 twice v
 Exact-ID errors now identify missing, unexpected and duplicate IDs for the repair attempt. Typed membership/structured-output failures trigger recursive packet splitting. If one check still fails after retries, the harness records an unverified finding without accepting a model conclusion, and continues independent work. Parent recovery checkpoints include all child results so future resumes skip completed children. Fatal infrastructure errors and cancellation are not disguised as unverified findings.
 
 The UI separately labels source reading and processed/verified check counts. Unverified/needs-input rows use unresolved styling even if a legacy semantic verifier marked their explanation supported. Existing failed version-2 reviews can resume; no new review or database migration is required for this fix.
+
+## 2026-09-21 — Request-size and latency improvements
+
+The Gemini adapter applies request-local lossless evidence interning. An exact serialized resolved-source object is stored once; each original occurrence becomes an explicit reference to that object. Distinct IDs or differing content never merge. The model is instructed to resolve references, preserve per-check evidence scope, and cite original evidence IDs. Requests without a net size reduction retain their existing representation. This changes transport formatting without changing stored evidence, retrieval selections, check membership or verification gates.
+
+Default concurrency increased from four to six with the same adaptive quota backoff; explicit environment overrides remain authoritative. Queue and model duration are attached to persisted step events. These timings include SDK retries and progress persistence, not merely provider inference time.
+
+Measured on 88 non-truncated stored comparison evidence packets from the prior run: serialized character count fell from 6,913,695 to 4,503,543 (34.86%). This is evidence-payload reduction on the available sample, not complete request-token reduction or measured end-to-end speedup. Oversized truncated trace packets were excluded. Regression tests reconstruct original packets exactly, and the generated-source live Gemini smoke test passed.

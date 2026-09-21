@@ -146,11 +146,14 @@ export async function executeReview(
                       : 'Choose the next evidence check');
         const attemptCallId = `${key}/${job.leaseToken}/attempt-${attempt + 1}`;
         let result;
+        const queuedAt = Date.now();
+        let dispatchedAt = queuedAt;
         try {
           result = await requestScheduler.run(
             { instruction, input, repair: lastError },
             signal,
             async () => {
+              dispatchedAt = Date.now();
               await reviews.reserveCall(job);
               if (worker)
                 await reviews.work(job, {
@@ -169,6 +172,7 @@ export async function executeReview(
                   attempt: attempt + 1,
                   workerId: worker?.id,
                   workerTitle: worker?.title,
+                  queueMs: dispatchedAt - queuedAt,
                 },
                 attemptCallId,
               );
@@ -239,6 +243,11 @@ export async function executeReview(
           }
           throw error;
         }
+        const usage = {
+          ...result,
+          queueMs: dispatchedAt - queuedAt,
+          durationMs: Date.now() - dispatchedAt,
+        };
         try {
           validate?.(result.value);
         } catch (error) {
@@ -251,7 +260,7 @@ export async function executeReview(
             `${key}/rejected-${attempt}`,
             { reason: lastError },
             role,
-            result,
+            usage,
             attemptCallId,
             worker?.id,
           );
@@ -263,7 +272,7 @@ export async function executeReview(
           key,
           result.value,
           role,
-          result,
+          usage,
           attemptCallId,
           worker?.id,
         );
