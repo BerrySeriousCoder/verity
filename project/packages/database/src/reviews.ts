@@ -9,10 +9,11 @@ import type {
   ReviewEvent,
   ReviewCheck,
   ReviewWorkItem,
+  ReviewFinding,
   DocumentRelationships,
 } from '@verity/core';
 
-const columns = `policy_ids AS "policyIds", document_relationships AS "documentRelationships", engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `batching_version AS "batchingVersion", policy_ids AS "policyIds", document_relationships AS "documentRelationships", engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export interface ReviewJob {
   run: ReviewRun;
   leaseToken: string;
@@ -392,6 +393,22 @@ export function reviewRepository(pool: Pool) {
       );
       if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
     },
+    async completedFindings(
+      runId: string,
+      revision: number,
+    ): Promise<ReviewFinding[]> {
+      const result = await pool.query<{ output: ReviewFinding[] }>(
+        'SELECT output FROM review_steps WHERE run_id=$1 AND key LIKE $2 ORDER BY created_at,key',
+        [runId, `v2/findings/%/revision-${revision}`],
+      );
+      return [
+        ...new Map(
+          result.rows
+            .flatMap((row) => row.output)
+            .map((finding) => [finding.id, finding]),
+        ).values(),
+      ];
+    },
     async loadStep<T>(runId: string, key: string): Promise<T | undefined> {
       return (
         await pool.query<{ output: T }>(
@@ -438,21 +455,27 @@ export function reviewRepository(pool: Pool) {
         );
         if (saved.rowCount)
           await client.query(
-            'UPDATE review_runs SET phase=$2,input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,report=coalesce($5::jsonb,report),updated_at=now() WHERE id=$1',
+            'UPDATE review_runs SET phase=coalesce($2,phase),input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,report=coalesce($5::jsonb,report),updated_at=now() WHERE id=$1',
             [
               job.run.id,
-              key.startsWith('inventory/') || key.startsWith('v2/inventory/')
-                ? 'Building source checklist'
-                : key.startsWith('audit/') || key.startsWith('v2/audit/')
-                  ? 'Independently auditing source coverage'
-                  : key.startsWith('reconcile/') ||
-                      key.startsWith('v2/canonical/')
-                    ? 'Combining independent checklists'
-                    : key.startsWith('verify/') || key.startsWith('v2/verify/')
-                      ? 'Verifying findings against evidence'
-                      : key.startsWith('scope')
-                        ? 'Determining review scope'
-                        : 'Comparing source obligations',
+              key.startsWith('progress/')
+                ? null
+                : key.startsWith('inventory/') ||
+                    key.startsWith('v2/inventory/') ||
+                    key.startsWith('v2/source-pack/') ||
+                    key.startsWith('v2/inventory-split/')
+                  ? 'Building source checklist'
+                  : key.startsWith('audit/') || key.startsWith('v2/audit/')
+                    ? 'Independently auditing source coverage'
+                    : key.startsWith('reconcile/') ||
+                        key.startsWith('v2/canonical/')
+                      ? 'Combining independent checklists'
+                      : key.startsWith('verify/') ||
+                          key.startsWith('v2/verify/')
+                        ? 'Verifying findings against evidence'
+                        : key.startsWith('scope')
+                          ? 'Determining review scope'
+                          : 'Comparing source obligations',
               usage?.inputTokens ?? 0,
               usage?.outputTokens ?? 0,
               key.startsWith('progress/') ? JSON.stringify(output) : null,

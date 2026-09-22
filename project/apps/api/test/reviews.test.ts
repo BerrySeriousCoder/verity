@@ -11,6 +11,7 @@ import {
   evidenceRepository,
   reviewRepository,
 } from '@verity/database';
+import type { ReviewCheck, ReviewFinding } from '@verity/core';
 import { executeReview } from '@verity/agent';
 import { scriptedModel as createScriptedModel } from './support/scripted-model.js';
 
@@ -80,10 +81,10 @@ async function create(version = 1) {
     reviewerModel: 'test-double',
     auditorModel: 'test-double',
   });
-  await pool.query('UPDATE review_runs SET engine_version=$2 WHERE id=$1', [
-    run.id,
-    version,
-  ]);
+  await pool.query(
+    'UPDATE review_runs SET engine_version=$2,batching_version=1 WHERE id=$1',
+    [run.id, version],
+  );
   return run;
 }
 
@@ -591,6 +592,10 @@ test('a missing batched verification result cannot become a partial success', as
 
 test('concurrent comparison packets merge every finding without overwriting progress', async () => {
   const run = await create(2);
+  await pool.query('UPDATE review_runs SET batching_version=2 WHERE id=$1', [
+    run.id,
+  ]);
+  const packetSizes: number[] = [];
   const job = await reviews.claim();
   assert.ok(job);
   const base = createScriptedModel(policyId, quoteId, evidence);
@@ -643,6 +648,9 @@ test('concurrent comparison packets merge every finding without overwriting prog
             };
           }
           if (instruction.startsWith('Compare every')) {
+            packetSizes.push(
+              (input as { input: { bundles: unknown[] } }).input.bundles.length,
+            );
             comparing++;
             peak = Math.max(peak, comparing);
             try {
@@ -681,6 +689,10 @@ test('concurrent comparison packets merge every finding without overwriting prog
     24,
   );
   assert.equal(detail?.report?.complete, true);
+  assert.deepEqual(
+    packetSizes.sort((a, b) => a - b),
+    [8, 16],
+  );
 });
 
 test('invalid comparison batch splits into valid single checks without losing findings', async () => {
@@ -737,7 +749,7 @@ test('invalid comparison batch splits into valid single checks without losing fi
   );
 });
 
-async function extraDocument(filename: string) {
+async function extraDocument(filename: string, pages = 1) {
   const id = randomUUID();
   const document = await documentRepository(pool).insertOrFind({
     id,
@@ -745,30 +757,31 @@ async function extraDocument(filename: string) {
     filename,
     sha256: id.replaceAll('-', '').repeat(2),
     byteSize: 100,
-    pageCount: 1,
+    pageCount: pages,
     format: 'pdf',
     createdAt: new Date().toISOString(),
   });
   const extraction = await evidence.claimExtraction();
   assert.ok(extraction);
-  await evidence.complete(extraction, [
-    {
+  await evidence.complete(
+    extraction,
+    Array.from({ length: pages }, (_, pageIndex) => ({
       kind: 'pdf_page',
-      label: 'Page 1',
-      locator: { pageIndex: 0 },
+      label: `Page ${pageIndex + 1}`,
+      locator: { pageIndex },
       warnings: [],
       blocks: [
         {
           text: 'Flood extension limit 1250.',
           anchor: {
             kind: 'pdf',
-            pageIndex: 0,
+            pageIndex,
             rectangles: [[10, 10, 100, 25]],
           },
         },
       ],
-    },
-  ]);
+    })),
+  );
   return document.id;
 }
 
@@ -1044,4 +1057,176 @@ test('uncertain quotation applicability stays visible and cannot be verified', a
     4,
     'no original observation is lost',
   );
+});
+
+test('legacy resume restores overwritten completed rows before requesting unfinished checks', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const policy = await evidence.inspect(LOCAL_WORKSPACE_ID, policyId);
+  const quote = await evidence.inspect(LOCAL_WORKSPACE_ID, quoteId);
+  const own = (
+    await evidence.blocks(LOCAL_WORKSPACE_ID, policy!.units[0]!.id, 0, 10)
+  )[0]!;
+  const other = (
+    await evidence.blocks(LOCAL_WORKSPACE_ID, quote!.units[0]!.id, 0, 10)
+  )[0]!;
+  const checks: ReviewCheck[] = Array.from({ length: 3 }, (_, index) => ({
+    id: `check-resume-${index}`,
+    title: 'Flood limit',
+    category: 'Flood',
+    direction: 'policy_to_quotation',
+    state: 'ready',
+    members: [
+      {
+        id: `raw-${index}`,
+        title: 'Flood limit',
+        documentId: policyId,
+        evidenceIds: [own.id],
+        references: [],
+      },
+    ],
+    workerId: null,
+    finding: null,
+  }));
+  for (const check of checks) await reviews.saveCheck(job, check);
+  const saved: ReviewFinding = {
+    id: checks[0]!.id,
+    title: 'Flood limit',
+    category: 'Flood',
+    direction: 'policy_to_quotation',
+    status: 'aligned',
+    explanation: 'Previously checked result.',
+    evidenceIds: [own.id, other.id],
+    question: null,
+    verified: true,
+    verification: 'Verified before interruption.',
+    userAnswer: null,
+  };
+  await reviews.saveStep(
+    job,
+    'v2/findings/old-packet/revision-0',
+    [saved],
+    'harness',
+  );
+  await reviews.saveStep(
+    job,
+    'v2/compare/old-packet/revision-0/initial',
+    { saved: true },
+    'reviewer',
+  );
+  await reviews.finish(job, 'failed', 'Simulated quota failure');
+  await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'retry');
+  const resumed = await reviews.claim();
+  assert.ok(resumed);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  const compared: string[] = [];
+  await executeReview(
+    resumed,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, input, schema, signal, onProgress) {
+          assert.ok(
+            !/^(Inventory|Group only|Assign each quotation)/.test(instruction),
+            'resume must not rebuild finalized questionnaire',
+          );
+          if (instruction.startsWith('Compare every')) {
+            const snapshot = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+            assert.deepEqual(
+              snapshot?.checks.find((check) => check.id === saved.id)?.finding,
+              saved,
+              'completed result restored before model dispatch',
+            );
+            assert.equal(snapshot?.report?.findings.length, 1);
+            compared.push(
+              ...(
+                input as { input: { bundles: { check: { id: string } }[] } }
+              ).input.bundles.map((bundle) => bundle.check.id),
+            );
+          }
+          return base.generate(
+            role,
+            instruction,
+            input,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  assert.deepEqual(compared.sort(), [checks[1]!.id, checks[2]!.id]);
+  const final = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(final?.report?.findings.length, 3);
+  assert.deepEqual(
+    final?.checks.find((check) => check.id === saved.id)?.finding,
+    saved,
+  );
+  assert.ok(await reviews.loadStep(run.id, 'v2/checklist/revision-0'));
+});
+
+test('new inventory batching reads six pages in two packets per independent pass', async () => {
+  const multiPagePolicy = await extraDocument('six-page-policy.pdf', 6);
+  const run = await reviews.create({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    policyId: multiPagePolicy,
+    quotationIds: [quoteId],
+    task: 'Compare flood limits in both directions.',
+    reviewerModel: 'test-double',
+    auditorModel: 'test-double',
+  });
+  const job = await reviews.claim();
+  assert.ok(job);
+  assert.equal(job.run.batchingVersion, 2);
+  const base = createScriptedModel(multiPagePolicy, quoteId, evidence);
+  const locations: { role: string; locations: string[] }[] = [];
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, input, schema, signal, onProgress) {
+          const payload = (
+            input as {
+              input: { documentId?: string; blocks?: { location: string }[] };
+            }
+          ).input;
+          if (
+            instruction.startsWith('Inventory every') &&
+            payload.documentId === multiPagePolicy
+          )
+            locations.push({
+              role,
+              locations: payload.blocks!.map((block) => block.location),
+            });
+          return base.generate(
+            role,
+            instruction,
+            input,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  assert.equal(locations.length, 4);
+  for (const role of ['reviewer', 'auditor'])
+    assert.deepEqual(
+      locations
+        .filter((item) => item.role === role)
+        .flatMap((item) => item.locations)
+        .sort(),
+      ['Page 1', 'Page 2', 'Page 3', 'Page 4', 'Page 5', 'Page 6'],
+    );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.report?.inventoriedUnits, 7);
+  assert.equal(detail?.report?.auditedUnits, 7);
 });

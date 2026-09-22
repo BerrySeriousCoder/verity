@@ -99,3 +99,13 @@ Added lossless request-local deduplication of repeated resolved evidence, increa
 Replaced the prompt-first single-policy restriction with plural policy roles and persisted relationship proposals. Every new proposal waits for user confirmation; corrections require fresh confirmation. Added relationship-specific quotation routing, shared-requirement expansion, uncertain applicability preservation, group-restricted retrieval and verification, and plural-policy attachments/report citations. Existing unresolved tasks can use the new flow; resolved historical runs retain their scope.
 
 Validation: strict types, unit tests and production build pass; 28 database integration tests and both browser tests pass. A live synthetic three-policy/one-quotation test completed in 24 model calls with a confirmed three-group mapping and a complete verified report. Two quotations feeding one policy and a many-to-many mapping are covered by deterministic integration tests. No full private-document review was restarted automatically. The limits of sampled inspection and semantic routing are documented in ADR 0009 and the relationship LLD.
+
+## 2026-09-22 — Resume regression and larger source/check packets
+
+Investigated a cancelled run after a provider 429 interruption: 320 unique final findings remained in immutable checkpoints but only 13 visible rows were done. The reconstruction path had overwritten completed rows. Added revision-specific finalized checklist manifests, checkpoint-first finding restoration, unfinished-only comparison scheduling, completed source-pack caching and durable source split decisions. The cancelled user run was not restarted or sent to Gemini.
+
+Added versioned larger batching for new runs while preserving old run checkpoint boundaries: up to three PDF pages or same-sheet row units, 60k characters/200 blocks, 80-member canonical partitions and 16-check comparison/verification packets. Both independent passes remain enabled. Progress snapshots now preserve the actual stage instead of announcing comparison during inventory.
+
+Validation: strict types, formatting, unit tests and production build passed; 30 PostgreSQL integration tests passed. New regressions cover restoration of overwritten completed rows before model dispatch, unfinished-only resumption, exact six-page coverage in two packets per independent pass, and concurrent 16/8-check packet merging.
+
+Live smoke attempt for this increment did not pass: the installed Gemini SDK raised `APIConnectionError: Unexpected HTTP client error: TypeError: unusable` during an inventory request. This is recorded separately from the passing deterministic tests; no live-model accuracy or latency result is claimed for the new batch sizes.

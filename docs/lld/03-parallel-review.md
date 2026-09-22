@@ -71,3 +71,25 @@ The Gemini adapter applies request-local lossless evidence interning. An exact s
 Default concurrency increased from four to six with the same adaptive quota backoff; explicit environment overrides remain authoritative. Queue and model duration are attached to persisted step events. These timings include SDK retries and progress persistence, not merely provider inference time.
 
 Measured on 88 non-truncated stored comparison evidence packets from the prior run: serialized character count fell from 6,913,695 to 4,503,543 (34.86%). This is evidence-payload reduction on the available sample, not complete request-token reduction or measured end-to-end speedup. Oversized truncated trace packets were excluded. Regression tests reconstruct original packets exactly, and the generated-source live Gemini smoke test passed.
+
+## 2026-09-22 — Checkpoint-first resume and batching version 2
+
+The old resume path reconstructed inventory/canonical/routed rows and overwrote completed visible rows with `ready`. Completed findings still existed in immutable packet checkpoints, but were restored only as execution revisited packets. This was a state regression and could also change packet composition unnecessarily.
+
+The new flow saves a finalized checklist per revision before comparison. Resume loads that manifest and restores final findings from immutable packet checkpoints and completed current-revision rows before any new comparison request. Only unfinished check IDs enter the remaining packet queue. For older runs without a manifest, reaching a committed comparison step proves the checklist stage was passed; the existing finalized check rows are adopted as the manifest. Previously completed findings are never inferred from chat text.
+
+Completed source-pack unions and inventory split decisions are also checkpointed, preventing completed source packs from being regenerated while recovering an earlier inventory-stage interruption. Progress snapshots no longer overwrite the current phase with a generic comparison label. Clarification revisions remain separate: this recovery applies to the same revision, not to invalidated conclusions after new user answers.
+
+Migration 0007 pins existing runs to batching version 1 and makes version 2 the default for new runs:
+
+| Stage                            | Existing runs                  | New runs                                     |
+| -------------------------------- | ------------------------------ | -------------------------------------------- |
+| PDF inventory pack               | 1 page                         | Up to 3 adjacent pages                       |
+| Spreadsheet inventory pack       | 2 adjacent row units           | Up to 3 adjacent row units on the same sheet |
+| Source text packet               | 24,000 characters / 100 blocks | 60,000 characters / 200 blocks               |
+| Canonical grouping partition     | 40 observations                | 80 observations                              |
+| Comparison / verification packet | 8 checks                       | 16 checks                                    |
+
+Larger source packs retain per-block page/section labels and stable source IDs. Both independent passes still account for every supplied block. Invalid source/output packets retain the existing split/retry behavior. The character/block values control packet splitting, not the model's output-token limit or a task spending cap. Existing runs keep their old boundaries to preserve compatible paid-for checkpoints.
+
+A cancelled local run had 320 completed findings in immutable checkpoints while its visible questionnaire showed only 13 completed rows; all 320 IDs still matched existing checks. It was inspected read-only and not automatically resumed. Regression tests reproduce this visible reset and verify restoration before model dispatch, preserve the original completed finding, and assert that only unfinished IDs are compared. A six-page fixture requires two inventory calls and two independent audit calls rather than six of each. Large-document cost and elapsed-time improvements still require measurement.

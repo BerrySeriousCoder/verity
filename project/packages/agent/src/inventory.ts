@@ -5,6 +5,7 @@ import { inventorySchema } from './contracts.js';
 export function batchBlocks(
   blocks: EvidenceBlock[],
   maxCharacters = 24000,
+  maxBlocks = 100,
 ): EvidenceBlock[][] {
   const result: EvidenceBlock[][] = [];
   let batch: EvidenceBlock[] = [],
@@ -16,7 +17,7 @@ export function batchBlocks(
       );
     if (
       batch.length &&
-      (length + block.text.length > maxCharacters || batch.length >= 100)
+      (length + block.text.length > maxCharacters || batch.length >= maxBlocks)
     ) {
       result.push(batch);
       batch = [];

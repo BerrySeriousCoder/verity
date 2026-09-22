@@ -48,6 +48,7 @@ export interface ReviewRun {
   revision: number;
   answers: Record<string, string>;
   engineVersion: number;
+  batchingVersion: number;
   modelCalls: number;
   inputTokens: number;
   outputTokens: number;

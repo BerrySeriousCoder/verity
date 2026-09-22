@@ -95,3 +95,9 @@ Both directions are reviewed within the confirmed groups. Shared quotation requi
 After updating, restart `pnpm dev` to apply migration 0006. An existing task waiting for document clarification can enter the new mapping flow with your next reply. Start a new task to change a relationship for an already-reviewed task.
 
 Additional live smoke test: `LIVE_MULTI_POLICY=1 pnpm test:live` (synthetic three-policy fixture; uses your Gemini key and incurs provider charges).
+
+### Resume and larger batches
+
+Resume now restores the saved questionnaire and completed findings before dispatching unfinished checks. Do not start over after a provider spending/quota failure: resolve the provider limit, restart the updated app, then resume the existing task. Interrupted calls without a committed checkpoint may repeat; completed findings are reused.
+
+Migration 0007 preserves the batching configuration of existing tasks. New tasks use up to three adjacent PDF pages or three spreadsheet row sections per inventory/audit pack, with 60,000-character/200-block splitting, 80-observation consolidation partitions, and 16-check comparison/verification packets. Independent coverage auditing remains enabled. Larger batches reduce request overhead but are not a measured cost or latency guarantee.
