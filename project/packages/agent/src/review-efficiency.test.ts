@@ -130,3 +130,37 @@ test('compact inventory cannot omit blocks or invent local references/categories
     /source index/,
   );
 });
+
+test('v4 shares reciprocal work despite different source values, retaining all obligations', () => {
+  const p = check('p', 'policy_to_quotation'),
+    q = check('q', 'quotation_to_policy');
+  p.members[0]!.references = ['Policy: monthly declarations'];
+  q.members[0]!.references = ['Quotation: quarterly declarations'];
+  const groups = pairedChecks(
+    [p, q, { ...p, id: 'p2', category: 'Conditions' }],
+    {},
+    true,
+  );
+  assert.equal(groups.size, 1);
+  assert.deepEqual([...groups.values()][0]!.map((item) => item.id).sort(), [
+    'p',
+    'p2',
+    'q',
+  ]);
+  assert.equal(
+    pairedChecks(
+      [
+        p,
+        q,
+        {
+          ...q,
+          id: 'other',
+          members: [{ ...q.members[0]!, evidenceIds: ['other-location'] }],
+        },
+      ],
+      {},
+      true,
+    ).size,
+    3,
+  );
+});

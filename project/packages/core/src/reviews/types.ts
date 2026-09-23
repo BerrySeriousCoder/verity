@@ -80,6 +80,7 @@ export interface ReviewEvent {
 }
 
 export interface ReviewFinding {
+  comparisonId?: string;
   relationshipId?: string;
   id: string;
   title: string;
@@ -95,6 +96,7 @@ export interface ReviewFinding {
 }
 
 export interface ReviewReport {
+  exclusions?: { evidenceId: string; reason: string }[];
   findings: ReviewFinding[];
   sourceUnits: number;
   inventoriedUnits: number;

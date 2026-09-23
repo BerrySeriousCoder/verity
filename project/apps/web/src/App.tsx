@@ -6,6 +6,7 @@ import type {
   ResolvedEvidence,
   ReviewRun,
 } from '@verity/core';
+import { isResolvedFinding, reviewSummary } from '@verity/core/review-results';
 import { api } from './api';
 import { SourceViewer } from './components/SourceViewer';
 import { Composer } from './components/chat/Composer';
@@ -48,6 +49,9 @@ export function App() {
     active,
     streamGeneration,
   );
+  const latestSummary = events.findLast(
+    (event) => event.title === 'Review summary',
+  )?.id;
   const working = !!detail && ['queued', 'running'].includes(detail.run.status);
   const replying =
     !!detail &&
@@ -316,9 +320,11 @@ export function App() {
               <span>
                 {terminal
                   ? detail.run.status
-                  : connected
-                    ? 'Live'
-                    : 'Reconnecting…'}
+                  : replying
+                    ? 'Waiting for your input'
+                    : connected
+                      ? 'Live'
+                      : 'Reconnecting…'}
               </span>
             )}
             <button
@@ -374,7 +380,17 @@ export function App() {
                 <WorkerConversation
                   key={active}
                   workers={detail?.workers ?? []}
-                  events={events}
+                  events={events.map((event) =>
+                    !working && detail?.report && event.id === latestSummary
+                      ? {
+                          ...event,
+                          data: {
+                            ...event.data,
+                            text: reviewSummary(detail.report.findings),
+                          },
+                        }
+                      : event,
+                  )}
                   working={working}
                   onCitation={(id) => void openCitation(id)}
                 />
@@ -416,20 +432,39 @@ export function App() {
                         {
                           detail.checks.filter(
                             (check) =>
-                              check.finding?.verified &&
-                              !['unverified', 'needs_input'].includes(
-                                check.finding.status,
-                              ),
+                              check.finding && isResolvedFinding(check.finding),
                           ).length
                         }{' '}
-                        verified. Reading all source sections does not mean all
-                        checks are finished.
+                        resolved. Processed checks can still need clarification
+                        or evidence.
                       </p>
                     )}
                     {!detail.report.complete && (
                       <p className="mt-2 text-xs text-amber-400/80">
                         Unresolved checks or source limitations remain.
                       </p>
+                    )}
+                    {!!detail.report.exclusions?.length && (
+                      <details className="mt-4 text-xs text-zinc-400">
+                        <summary className="cursor-pointer">
+                          Excluded source passages (
+                          {detail.report.exclusions.length})
+                        </summary>
+                        <p className="my-2">
+                          These passages were excluded from the agreed review
+                          scope or treated as non-substantive. They have not
+                          been verified.
+                        </p>
+                        {detail.report.exclusions.map((entry) => (
+                          <button
+                            key={entry.evidenceId}
+                            onClick={() => void openCitation(entry.evidenceId)}
+                            className="my-2 block text-left text-emerald-400"
+                          >
+                            {entry.reason} ↗
+                          </button>
+                        ))}
+                      </details>
                     )}
                     {detail.report.limitations.map((limitation, index) => (
                       <p

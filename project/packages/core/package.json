@@ -8,6 +8,7 @@
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./review-results": "./src/reviews/results.ts"
   }
 }

@@ -135,6 +135,9 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
   );
 
   await expect(page.getByText(/Please confirm this mapping/)).toBeVisible();
+  await expect(
+    page.getByText('Waiting for your input', { exact: true }),
+  ).toBeVisible();
   await page.getByLabel('Message Verity').fill('Yes, confirm this mapping.');
   await page.getByRole('button', { name: 'Send message' }).click();
   await expect(
@@ -155,7 +158,7 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
       )
       .first(),
   ).toBeVisible();
-  await expect(page.getByText(/Finished checking/)).toBeVisible();
+  await expect(page.getByText(/Finished processing/)).toBeVisible();
   await expect(
     page.getByText('[Flood] Flood limit', { exact: true }).first(),
   ).toBeVisible();
@@ -179,6 +182,19 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
   });
   await expect(ledger).toBeVisible();
   await expect(ledger.getByText('2 processed · 2 discovered')).toBeVisible();
+  await expect(ledger.getByText(/2 linked checks/)).toBeVisible();
+  await ledger
+    .getByRole('checkbox', { name: 'Group shared comparisons' })
+    .uncheck();
+  await expect(ledger.getByRole('button', { name: /Flood limit/ })).toHaveCount(
+    2,
+  );
+  await ledger
+    .getByRole('checkbox', { name: 'Group shared comparisons' })
+    .check();
+  await expect(ledger.getByRole('button', { name: /Flood limit/ })).toHaveCount(
+    1,
+  );
   await ledger
     .getByRole('button', { name: 'Full screen questionnaire' })
     .click();
@@ -203,7 +219,7 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     fullPage: true,
   });
   await page.reload();
-  await expect(page.getByText(/Finished checking/)).toBeVisible();
+  await expect(page.getByText(/Finished processing/)).toBeVisible();
   await expect(
     page.getByText('[Flood] Flood limit', { exact: true }).first(),
   ).toBeVisible();

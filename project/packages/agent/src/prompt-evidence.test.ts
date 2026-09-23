@@ -56,3 +56,11 @@ test('inventory and requests without duplicate source objects retain their shape
   const input = { blocks: [{ id: 'x', text: 'source' }] };
   assert.equal(compactEvidence(input), input);
 });
+
+test('PDF prompt evidence retains source ordering for adjacent labels and values', () => {
+  assert.deepEqual(projectEvidence({ ...source, ordinal: 7 })['location'], {
+    kind: 'pdf',
+    pageIndex: 4,
+    blockOrdinal: 7,
+  });
+});

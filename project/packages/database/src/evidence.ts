@@ -148,6 +148,40 @@ export function evidenceRepository(pool: Pool) {
       );
       return result.rows;
     },
+    /** Whole small documents, never a silently truncated document. */
+    async compactDocument(
+      workspaceId: string,
+      documentId: string,
+    ): Promise<ResolvedEvidence[] | null> {
+      const result = await pool.query<ResolvedEvidence>(
+        `WITH bounded AS (
+          SELECT ${blockColumns}, d.id AS "documentId", d.filename, e.id AS "extractionId", u.label, u.ordinal AS unit_ordinal
+          FROM evidence_blocks b JOIN evidence_units u ON u.id=b.unit_id
+          JOIN document_extractions e ON e.id=u.extraction_id JOIN document_versions d ON d.id=e.document_id
+          WHERE d.workspace_id=$1 AND d.id=$2 ORDER BY u.ordinal,b.ordinal LIMIT 201
+        ) SELECT * FROM bounded WHERE (SELECT count(*) FROM bounded)<=200
+          AND (SELECT coalesce(sum(length(text)),0) FROM bounded)<=16000 ORDER BY unit_ordinal,ordinal`,
+        [workspaceId, documentId],
+      );
+      return result.rows.length ? result.rows : null;
+    },
+    /** Recover adjacent PDF labels/values without crossing document or unit boundaries. */
+    async neighbors(
+      workspaceId: string,
+      ids: string[],
+      documentIds: string[],
+    ): Promise<ResolvedEvidence[]> {
+      if (!ids.length) return [];
+      const result = await pool.query<ResolvedEvidence>(
+        `SELECT DISTINCT ${blockColumns}, d.id AS "documentId", d.filename, e.id AS "extractionId", u.label
+        FROM evidence_blocks b JOIN evidence_blocks seed ON seed.unit_id=b.unit_id AND abs(seed.ordinal-b.ordinal)<=1
+        JOIN evidence_units u ON u.id=b.unit_id JOIN document_extractions e ON e.id=u.extraction_id
+        JOIN document_versions d ON d.id=e.document_id
+        WHERE seed.id=ANY($1::uuid[]) AND d.workspace_id=$2 AND d.id=ANY($3::uuid[])`,
+        [ids, workspaceId, documentIds],
+      );
+      return result.rows;
+    },
     async search(
       workspaceId: string,
       documentIds: string[],

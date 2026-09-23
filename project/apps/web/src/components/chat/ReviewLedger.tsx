@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { ReviewCheck, ResolvedEvidence } from '@verity/core';
+import { isResolvedFinding } from '@verity/core/review-results';
 import { api } from '../../api';
 import { Finding } from './Timeline';
 
@@ -98,11 +99,21 @@ export function ReviewLedger({
   const [filter, setFilter] = useState('all');
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [grouped, setGrouped] = useState(true);
+  const comparisonKey = (check: ReviewCheck) =>
+    check.finding?.comparisonId
+      ? `${check.finding.comparisonId}:${check.finding.status}:${check.finding.verified}`
+      : check.id;
+  const groups = new Map<string, ReviewCheck[]>();
+  for (const check of checks) {
+    const key = comparisonKey(check);
+    groups.set(key, [...(groups.get(key) ?? []), check]);
+  }
   useEffect(() => {
     const value = new URLSearchParams(location.hash.slice(1)).get('check');
     if (value) setSelected(value);
   }, []);
-  const visible = checks.filter(
+  const matching = checks.filter(
     (check) =>
       (filter === 'all' ||
         check.state === filter ||
@@ -111,6 +122,13 @@ export function ReviewLedger({
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  const visible = grouped
+    ? [
+        ...new Map(
+          matching.map((check) => [comparisonKey(check), check]),
+        ).values(),
+      ]
+    : matching;
   const pages = Math.max(1, Math.ceil(visible.length / 40));
   const currentPage = Math.min(page, pages - 1);
   const current = checks.find((check) => check.id === selected);
@@ -178,6 +196,22 @@ export function ReviewLedger({
             <p className="mb-2 text-[10px] text-zinc-500">
               {current.category} · {current.state}
             </p>
+            {(groups.get(comparisonKey(current))?.length ?? 0) > 1 && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {groups.get(comparisonKey(current))!.map((check) => (
+                  <button
+                    key={check.id}
+                    onClick={() => select(check.id)}
+                    className="rounded border border-zinc-700 px-2 py-1 text-xs text-emerald-400"
+                  >
+                    {check.direction === 'policy_to_quotation'
+                      ? 'Policy → quotation'
+                      : 'Quotation → policy'}{' '}
+                    · {check.category}
+                  </button>
+                ))}
+              </div>
+            )}
             <h3 className="mb-4 text-base font-medium">{current.title}</h3>
             {current.applicability && (
               <p className="mb-4 text-xs leading-6 text-zinc-400">
@@ -240,6 +274,21 @@ export function ReviewLedger({
         ) : (
           <>
             <div className="space-y-3 border-b border-zinc-800 p-4">
+              <p className="text-[11px] leading-5 text-zinc-400">
+                Different means the cited policy and quotation terms disagree.
+                It does not decide which document is correct.
+              </p>
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                <input
+                  type="checkbox"
+                  checked={grouped}
+                  onChange={(event) => {
+                    setGrouped(event.target.checked);
+                    setPage(0);
+                  }}
+                />
+                Group shared comparisons
+              </label>
               <input
                 aria-label="Search questionnaire"
                 placeholder="Search checks or categories…"
@@ -297,7 +346,7 @@ export function ReviewLedger({
                         {check.title}
                       </span>
                       <span
-                        className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding?.verified && !['unverified', 'needs_input'].includes(check.finding.status) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
+                        className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding && isResolvedFinding(check.finding) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
                       >
                         {check.state === 'done'
                           ? check.finding?.status.replaceAll('_', ' ')
@@ -310,6 +359,10 @@ export function ReviewLedger({
                         ? 'Policy → quotation'
                         : 'Quotation → policy'}{' '}
                       · {check.members.length} observations
+                      {grouped &&
+                      (groups.get(comparisonKey(check))?.length ?? 0) > 1
+                        ? ` · ${groups.get(comparisonKey(check))!.length} linked checks`
+                        : ''}
                     </span>
                   </button>
                 ))}

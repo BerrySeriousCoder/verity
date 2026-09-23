@@ -231,11 +231,14 @@ export function registerReviewRoutes(
           citations: await evidence.resolve(
             request.params.workspaceId,
             [
-              ...new Set(
-                detail.report.findings.flatMap(
+              ...new Set([
+                ...detail.report.findings.flatMap(
                   (finding) => finding.evidenceIds,
                 ),
-              ),
+                ...(detail.report.exclusions ?? []).map(
+                  (entry) => entry.evidenceId,
+                ),
+              ]),
             ],
             [...detail.run.policyIds, ...detail.run.quotationIds],
           ),

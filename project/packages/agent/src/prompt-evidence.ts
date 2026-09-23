@@ -16,7 +16,13 @@ export function projectEvidence(
   if (anchor['kind'] === 'pdf')
     return {
       ...source,
-      location: { kind: 'pdf', pageIndex: anchor['pageIndex'] },
+      location: {
+        kind: 'pdf',
+        pageIndex: anchor['pageIndex'],
+        ...(typeof object['ordinal'] === 'number'
+          ? { blockOrdinal: object['ordinal'] }
+          : {}),
+      },
     };
   // Cell text/formulas are already serialized into row text by our parser. Only
   // remove that duplicate representation when it matches exactly; preserve merges.

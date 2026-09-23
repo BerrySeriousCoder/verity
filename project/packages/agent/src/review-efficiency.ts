@@ -61,12 +61,13 @@ export function relatedChecks(checks: ReviewCheck[]): ReviewCheck[] {
   return [...checks].sort((a, b) => key(a).localeCompare(key(b)));
 }
 
-/** Only unique, exact-title reciprocal candidates share work. Both originals are
- * still checked against their complete combined source obligations by the verifier.
- * Similarity alone never authorizes reuse. Ambiguous/answered checks stay separate. */
+/** Exact-title candidates share investigation, never an assumed verdict. v4
+ * tolerates differing source references and duplicate categories while preserving
+ * every obligation. Ambiguous/answered checks stay separate. */
 export function pairedChecks(
   checks: ReviewCheck[],
   answers: Record<string, string>,
+  shareDifferentReferences = false,
 ): Map<string, ReviewCheck[]> {
   const buckets = new Map<string, ReviewCheck[]>();
   for (const check of checks) {
@@ -80,9 +81,9 @@ export function pairedChecks(
         ? check.id
         : JSON.stringify([
             check.relationshipId ?? '',
-            normalize(check.category),
+            ...(shareDifferentReferences ? [] : [normalize(check.category)]),
             normalize(check.title),
-            references,
+            ...(shareDifferentReferences ? [] : [references]),
           ]);
     const bucket = buckets.get(key) ?? [];
     bucket.push(check);
@@ -90,7 +91,29 @@ export function pairedChecks(
   }
   const result = new Map<string, ReviewCheck[]>();
   for (const bucket of buckets.values()) {
-    if (bucket.length === 2 && bucket[0]!.direction !== bucket[1]!.direction) {
+    const sameSourcesPerDirection = [
+      'policy_to_quotation',
+      'quotation_to_policy',
+    ].every(
+      (direction) =>
+        new Set(
+          bucket
+            .filter((check) => check.direction === direction)
+            .map((check) =>
+              JSON.stringify(
+                [
+                  ...new Set(
+                    check.members.flatMap((member) => member.evidenceIds),
+                  ),
+                ].sort(),
+              ),
+            ),
+        ).size <= 1,
+    );
+    if (
+      (bucket.length === 2 && bucket[0]!.direction !== bucket[1]!.direction) ||
+      (shareDifferentReferences && bucket.length > 1 && sameSourcesPerDirection)
+    ) {
       const ordered = [...bucket].sort((a, b) => a.id.localeCompare(b.id));
       result.set(ordered[0]!.id, ordered);
     } else for (const check of bucket) result.set(check.id, [check]);

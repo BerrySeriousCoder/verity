@@ -1181,7 +1181,7 @@ test('new inventory batching reads six pages in two packets per independent pass
   });
   const job = await reviews.claim();
   assert.ok(job);
-  assert.equal(job.run.batchingVersion, 3);
+  assert.equal(job.run.batchingVersion, 4);
   const base = createScriptedModel(multiPagePolicy, quoteId, evidence);
   const locations: { role: string; locations: string[] }[] = [];
   await executeReview(
@@ -1356,4 +1356,203 @@ test('usage accounting persists cache, thinking and latency without charging a c
     durationMs: 1000,
   });
   await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
+});
+
+test('v4 uncertainty accepted by a verifier stays unresolved and summary agrees', async () => {
+  const run = await create(2);
+  await pool.query('UPDATE review_runs SET batching_version=4 WHERE id=$1', [
+    run.id,
+  ]);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, raw, schema, signal, onProgress) {
+          const result = await base.generate(
+            role,
+            instruction,
+            raw,
+            schema,
+            signal,
+            onProgress,
+          );
+          if (instruction.startsWith('Compare every')) {
+            const value = result.value as {
+              items: {
+                decision: { status: string; question: string | null };
+              }[];
+            };
+            for (const item of value.items) {
+              item.decision.status = 'unverified';
+              item.decision.question = 'Which period applies?';
+            }
+          }
+          return result;
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.status, 'needs_input');
+  assert.equal(detail?.report?.findings.length, 2);
+  assert.ok(
+    detail.report.findings.every(
+      (finding) => finding.status === 'unverified' && !finding.verified,
+    ),
+  );
+  assert.equal(
+    new Set(detail.report.findings.map((finding) => finding.comparisonId)).size,
+    1,
+  );
+});
+
+test('compact evidence retrieval is workspace scoped and refuses truncated large documents', async () => {
+  const compact = await evidence.compactDocument(LOCAL_WORKSPACE_ID, policyId);
+  assert.ok(compact?.length);
+  assert.equal(await evidence.compactDocument(randomUUID(), policyId), null);
+  assert.deepEqual(
+    await evidence.neighbors(
+      randomUUID(),
+      compact.map((block) => block.id),
+      [policyId],
+    ),
+    [],
+  );
+  assert.deepEqual(
+    await evidence.neighbors(
+      LOCAL_WORKSPACE_ID,
+      compact.map((block) => block.id),
+      [quoteId],
+    ),
+    [],
+  );
+  const id = compact[0]!.id;
+  const original = compact[0]!.text;
+  try {
+    await pool.query('UPDATE evidence_blocks SET text=$2 WHERE id=$1', [
+      id,
+      'x'.repeat(16001),
+    ]);
+    assert.equal(
+      await evidence.compactDocument(LOCAL_WORKSPACE_ID, policyId),
+      null,
+    );
+  } finally {
+    await pool.query('UPDATE evidence_blocks SET text=$2 WHERE id=$1', [
+      id,
+      original,
+    ]);
+  }
+});
+
+test('v4 rejects model-approved identical wording with unequal total limits and retains scope exclusions', async () => {
+  const ids: string[] = [];
+  for (const [index, amount] of ['INR 9,500,000', 'INR 10,000,000'].entries()) {
+    const document = await documentRepository(pool).insertOrFind({
+      id: randomUUID(),
+      workspaceId: LOCAL_WORKSPACE_ID,
+      filename: `dependency-${index}.pdf`,
+      sha256: randomUUID().replaceAll('-', '').repeat(2),
+      byteSize: 100,
+      pageCount: 1,
+      format: 'pdf',
+      createdAt: new Date().toISOString(),
+    });
+    ids.push(document.id);
+    const extraction = await evidence.claimExtraction();
+    assert.ok(extraction);
+    await evidence.complete(extraction, [
+      {
+        kind: 'pdf_page',
+        label: 'Page 1',
+        locator: { pageIndex: 0 },
+        warnings: [],
+        blocks: [
+          'Fire up to total sum insured',
+          'Total sum insured',
+          amount,
+          'Premium INR 100',
+        ].map((text) => ({
+          text,
+          anchor: { kind: 'pdf' as const, pageIndex: 0, rectangles: [] },
+        })),
+      },
+    ]);
+  }
+  const run = await reviews.create({
+    workspaceId: LOCAL_WORKSPACE_ID,
+    policyId: ids[0]!,
+    quotationIds: [ids[1]!],
+    task: 'Compare coverage limits in both directions.',
+    reviewerModel: 'test-double',
+    auditorModel: 'test-double',
+  });
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(ids[0]!, ids[1]!, evidence);
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, raw, schema, signal, onProgress) {
+          if (instruction.startsWith('Inventory every'))
+            return {
+              value: schema.parse({
+                obligations: [
+                  {
+                    title: 'Fire effective limit',
+                    category: 0,
+                    sources: [0, 1, 2],
+                    references: [],
+                  },
+                ],
+                exclusions: [
+                  {
+                    sources: [3],
+                    reason: 'Premium arithmetic outside agreed coverage scope',
+                  },
+                ],
+              }),
+              inputTokens: 10,
+              outputTokens: 10,
+              model: 'test-double',
+            };
+          return base.generate(
+            role,
+            instruction,
+            raw,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.report?.findings.length, 2);
+  assert.ok(
+    detail.report.findings.every(
+      (finding) =>
+        !finding.verified &&
+        finding.status === 'unverified' &&
+        finding.verification.includes('total sums insured differ'),
+    ),
+  );
+  assert.equal(detail.report.exclusions?.length, 2);
+  assert.ok(
+    detail.report.exclusions?.every((entry) =>
+      entry.reason.includes('outside agreed coverage scope'),
+    ),
+  );
+  assert.equal(detail.report.complete, false);
 });

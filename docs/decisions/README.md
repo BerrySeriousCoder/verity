@@ -1,5 +1,9 @@
 # Architecture decision records
 
+[0011 — Evidence context and honest result states](0011-evidence-context-and-result-semantics.md): bounded original context, referenced-limit guards, explicit exclusions, and grouped directional results.
+
+[0010 — Review cost efficiency](0010-review-cost-efficiency.md): compact inventory, shared reciprocal work, and usage accounting.
+
 [0009 — Confirmed document relationships](0009-confirmed-document-relationships.md): many-to-many document roles, user confirmation, applicability routing and per-group evidence isolation.
 
 [0008 — Parallel reviews and individual worker threads](0008-parallel-review-and-worker-threads.md): harness-owned concurrency, batched verification, raw membership preservation, and a live questionnaire.
