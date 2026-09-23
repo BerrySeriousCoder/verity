@@ -16,3 +16,7 @@ playwright-report/
 test-results/
 
 .next-e2e/
+
+# Private reference documents; commit only the fully fictional small fixture.
+/testdoc/*
+!/testdoc/dummy/

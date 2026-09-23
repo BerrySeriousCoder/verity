@@ -1,0 +1,97 @@
+{
+  "fictional": true,
+  "differences": [
+    {
+      "number": 5,
+      "item": "Plant and machinery sum insured",
+      "quotation": "INR 3,000,000",
+      "policy": "INR 2,500,000",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 11
+    },
+    {
+      "number": 7,
+      "item": "Total sum insured",
+      "quotation": "INR 10,000,000",
+      "policy": "INR 9,500,000",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 13
+    },
+    {
+      "number": 10,
+      "item": "Earthquake",
+      "quotation": "Included up to total sum insured",
+      "policy": "Excluded; no earthquake cover is provided",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 16
+    },
+    {
+      "number": 11,
+      "item": "Removal of debris extension",
+      "quotation": "INR 250,000 any one occurrence",
+      "policy": "INR 100,000 any one occurrence",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 17
+    },
+    {
+      "number": 12,
+      "item": "Expediting expenses extension",
+      "quotation": "INR 100,000 any one occurrence",
+      "policy": "INR 50,000 any one occurrence",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 18
+    },
+    {
+      "number": 13,
+      "item": "Standard deductible",
+      "quotation": "INR 10,000 each and every claim",
+      "policy": "INR 25,000 each and every claim",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 19
+    },
+    {
+      "number": 14,
+      "item": "Stock declaration condition",
+      "quotation": "Quarterly declaration within 15 days of quarter end",
+      "policy": "Monthly declaration within 15 days of month end",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 20
+    },
+    {
+      "number": 15,
+      "item": "Sprinkler warranty",
+      "quotation": "No sprinkler warranty required",
+      "policy": "Operative automatic sprinklers required at all times",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 21
+    },
+    {
+      "number": 19,
+      "item": "Total premium payable",
+      "quotation": "INR 29,500",
+      "policy": "INR 29,400",
+      "policyPage": 1,
+      "sheet": "Placement Slip",
+      "row": 25
+    }
+  ],
+  "arithmetic": {
+    "item": "Total premium payable",
+    "expected": 29500,
+    "printedPolicyTotal": 29400,
+    "discrepancy": 100
+  },
+  "notes": [
+    "The total sum insured difference is derived from the plant limit difference.",
+    "Fire and flood wording aligns, but the monetary maximum inherits the differing total sum insured.",
+    "Do not upload this answer key to the agent."
+  ]
+}
