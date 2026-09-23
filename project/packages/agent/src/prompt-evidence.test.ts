@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compactEvidence } from './prompt-evidence.js';
+import { compactEvidence, projectEvidence } from './prompt-evidence.js';
 const source = {
   id: 'id-1',
   documentId: 'doc',
@@ -18,7 +18,7 @@ function expand(value: unknown, table: Record<string, unknown>): unknown {
     Object.entries(object).map(([key, item]) => [key, expand(item, table)]),
   );
 }
-test('shared evidence remains losslessly reconstructable and check-scoped', () => {
+test('shared evidence preserves text and identity, with check-scoped references', () => {
   const input = {
     input: {
       bundles: [
@@ -36,11 +36,23 @@ test('shared evidence remains losslessly reconstructable and check-scoped', () =
     request: unknown;
     evidenceByRef: Record<string, unknown>;
   };
-  assert.deepEqual(expand(result.request, result.evidenceByRef), input);
+  function project(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(project);
+    if (!value || typeof value !== 'object') return value;
+    const object = value as Record<string, unknown>;
+    if (object['anchor']) return projectEvidence(object);
+    return Object.fromEntries(
+      Object.entries(object).map(([key, child]) => [key, project(child)]),
+    );
+  }
+  assert.deepEqual(
+    expand(result.request, result.evidenceByRef),
+    project(input),
+  );
   assert.equal(Object.keys(result.evidenceByRef).length, 3);
   assert.ok(JSON.stringify(result).length < JSON.stringify(input).length);
 });
 test('inventory and requests without duplicate source objects retain their shape', () => {
-  const input = { blocks: [{ id: 'x', text: 'source' }], evidence: [source] };
+  const input = { blocks: [{ id: 'x', text: 'source' }] };
   assert.equal(compactEvidence(input), input);
 });

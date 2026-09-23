@@ -47,6 +47,9 @@ export interface ModelResult<T> {
   inputTokens: number;
   outputTokens: number;
   model: string;
+  cachedTokens?: number;
+  thoughtTokens?: number;
+  promptCharacters?: number;
 }
 
 export class ModelResponseError extends Error {
@@ -55,6 +58,8 @@ export class ModelResponseError extends Error {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly model: string;
+  readonly cachedTokens?: number;
+  readonly thoughtTokens?: number;
 
   constructor(input: {
     message: string;
@@ -63,6 +68,8 @@ export class ModelResponseError extends Error {
     inputTokens: number;
     outputTokens: number;
     model: string;
+    cachedTokens?: number;
+    thoughtTokens?: number;
   }) {
     super(input.message);
     this.name = 'ModelResponseError';
@@ -71,6 +78,10 @@ export class ModelResponseError extends Error {
     this.inputTokens = input.inputTokens;
     this.outputTokens = input.outputTokens;
     this.model = input.model;
+    if (input.cachedTokens !== undefined)
+      this.cachedTokens = input.cachedTokens;
+    if (input.thoughtTokens !== undefined)
+      this.thoughtTokens = input.thoughtTokens;
   }
 }
 
@@ -123,6 +134,7 @@ export function geminiModel(
           ...(signal ? { signal } : {}),
         },
       );
+      let cachedTokens: number | undefined, thoughtTokens: number | undefined;
       let text = '',
         sent = '',
         terminalStatus = 'stream_ended',
@@ -143,6 +155,8 @@ export function geminiModel(
           terminalStatus = event.interaction.status;
           inputTokens = event.interaction.usage?.total_input_tokens ?? 0;
           outputTokens = event.interaction.usage?.total_output_tokens ?? 0;
+          cachedTokens = event.interaction.usage?.total_cached_tokens;
+          thoughtTokens = event.interaction.usage?.total_thought_tokens;
         } else if (event.event_type === 'error') {
           const code = event.error?.code ?? 'stream_error';
           throw new ModelResponseError({
@@ -156,6 +170,8 @@ export function geminiModel(
               'stream_error',
               'too_many_requests',
             ].includes(code),
+            ...(cachedTokens === undefined ? {} : { cachedTokens }),
+            ...(thoughtTokens === undefined ? {} : { thoughtTokens }),
             inputTokens,
             outputTokens,
             model,
@@ -176,6 +192,8 @@ export function geminiModel(
             'in_progress',
             'stream_ended',
           ].includes(terminalStatus),
+          ...(cachedTokens === undefined ? {} : { cachedTokens }),
+          ...(thoughtTokens === undefined ? {} : { thoughtTokens }),
           inputTokens,
           outputTokens,
           model,
@@ -188,6 +206,8 @@ export function geminiModel(
           message: 'Gemini returned malformed structured output.',
           status: 'malformed_output',
           retryable: true,
+          ...(cachedTokens === undefined ? {} : { cachedTokens }),
+          ...(thoughtTokens === undefined ? {} : { thoughtTokens }),
           inputTokens,
           outputTokens,
           model,
@@ -197,6 +217,9 @@ export function geminiModel(
         await onProgress?.(parsed.publicSummary);
       return {
         value: parsed.result,
+        ...(cachedTokens === undefined ? {} : { cachedTokens }),
+        ...(thoughtTokens === undefined ? {} : { thoughtTokens }),
+        promptCharacters: prompt.length,
         inputTokens,
         outputTokens,
         model,

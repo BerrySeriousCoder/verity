@@ -9,7 +9,7 @@
     "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "pnpm -r --if-present typecheck",
+    "typecheck": "pnpm -r --if-present typecheck && pnpm typecheck:runtime",
     "db:up": "docker compose up -d --wait postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
@@ -20,7 +20,12 @@
     "test:integration": "pnpm --filter @verity/api test:integration",
     "db:migrate": "pnpm --filter @verity/database migrate",
     "test:e2e": "playwright test",
-    "test:live": "pnpm --filter @verity/api test:live"
+    "test:live": "pnpm --filter @verity/api test:live",
+    "review:usage": "pnpm --filter @verity/database review:usage",
+    "test:runtime": "node --test scripts/runtime/*.test.mjs",
+    "test:fixtures": "node --import tsx --test scripts/fixtures.test.mts",
+    "fixtures:generate": "node scripts/generate-demo-documents.mjs",
+    "typecheck:runtime": "tsc -p scripts/tsconfig.json"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

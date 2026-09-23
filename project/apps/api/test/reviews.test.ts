@@ -1181,7 +1181,7 @@ test('new inventory batching reads six pages in two packets per independent pass
   });
   const job = await reviews.claim();
   assert.ok(job);
-  assert.equal(job.run.batchingVersion, 2);
+  assert.equal(job.run.batchingVersion, 3);
   const base = createScriptedModel(multiPagePolicy, quoteId, evidence);
   const locations: { role: string; locations: string[] }[] = [];
   await executeReview(
@@ -1229,4 +1229,131 @@ test('new inventory batching reads six pages in two packets per independent pass
   const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
   assert.equal(detail?.report?.inventoriedUnits, 7);
   assert.equal(detail?.report?.auditedUnits, 7);
+});
+
+test('efficient review evaluates reciprocal requirements once and retains both verified ledger entries', async () => {
+  const run = await create(2);
+  await pool.query('UPDATE review_runs SET batching_version=3 WHERE id=$1', [
+    run.id,
+  ]);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const base = createScriptedModel(policyId, quoteId, evidence);
+  let comparisonItems = 0,
+    verificationItems = 0;
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: {
+        async generate(role, instruction, raw, schema, signal, onProgress) {
+          const input = (raw as { input: Record<string, unknown> }).input;
+          if (instruction.startsWith('Compare every')) {
+            const bundles = input['bundles'] as {
+              pairedRequirements: { direction: string }[];
+            }[];
+            comparisonItems += bundles.length;
+            assert.equal(bundles[0]!.pairedRequirements.length, 2);
+            assert.equal(
+              new Set(
+                bundles[0]!.pairedRequirements.map((check) => check.direction),
+              ).size,
+              2,
+            );
+          }
+          if (instruction.startsWith('Independently verify each')) {
+            const items = input['items'] as {
+              pairedRequirements: unknown[];
+              provisional?: unknown;
+            }[];
+            verificationItems += items.length;
+            assert.equal(items[0]!.pairedRequirements.length, 2);
+            assert.equal(items[0]!.provisional, undefined);
+          }
+          return base.generate(
+            role,
+            instruction,
+            raw,
+            schema,
+            signal,
+            onProgress,
+          );
+        },
+      },
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(comparisonItems, 1);
+  assert.equal(verificationItems, 1);
+  assert.equal(detail?.report?.findings.length, 2);
+  assert.equal(detail?.checks.length, 2);
+  assert.ok(detail?.report?.findings.every((finding) => finding.verified));
+  assert.ok(
+    detail?.checks.every(
+      (check) =>
+        new Set(check.members.map((member) => member.documentId)).size === 1,
+    ),
+  );
+});
+
+test('efficient paired review keeps both directions unverified when citations are invalid', async () => {
+  const run = await create(2);
+  await pool.query('UPDATE review_runs SET batching_version=3 WHERE id=$1', [
+    run.id,
+  ]);
+  const job = await reviews.claim();
+  assert.ok(job);
+  await executeReview(
+    job,
+    {
+      reviews,
+      evidence,
+      model: createScriptedModel(policyId, quoteId, evidence, {
+        invalidCitation: true,
+      }),
+    },
+    new AbortController().signal,
+  );
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.checks.length, 2);
+  assert.equal(detail?.report?.findings.length, 2);
+  assert.ok(
+    detail?.report?.findings.every(
+      (finding) => !finding.verified && finding.status === 'unverified',
+    ),
+  );
+});
+
+test('usage accounting persists cache, thinking and latency without charging a checkpoint twice', async () => {
+  const run = await create(2);
+  const job = await reviews.claim();
+  assert.ok(job);
+  const usage = {
+    model: 'test-double',
+    inputTokens: 100,
+    outputTokens: 40,
+    cachedTokens: 80,
+    thoughtTokens: 25,
+    promptCharacters: 400,
+    queueMs: 5,
+    durationMs: 1000,
+  };
+  await reviews.reserveCall(job);
+  await reviews.saveStep(job, 'v2/compare/usage', {}, 'reviewer', usage);
+  await reviews.saveStep(job, 'v2/compare/usage', {}, 'reviewer', usage);
+  const detail = await reviews.detail(LOCAL_WORKSPACE_ID, run.id);
+  assert.equal(detail?.run.inputTokens, 100);
+  assert.equal(detail?.run.cachedTokens, 80);
+  assert.equal(detail?.run.thoughtTokens, 25);
+  assert.equal(detail?.run.meteredCalls, 1);
+  assert.deepEqual(detail?.trace[0]?.usage, {
+    cachedTokens: 80,
+    thoughtTokens: 25,
+    promptCharacters: 400,
+    queueMs: 5,
+    durationMs: 1000,
+  });
+  await reviews.control(LOCAL_WORKSPACE_ID, run.id, 'cancel');
 });

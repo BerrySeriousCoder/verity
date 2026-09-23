@@ -50,6 +50,9 @@ export interface ReviewRun {
   engineVersion: number;
   batchingVersion: number;
   modelCalls: number;
+  cachedTokens?: number;
+  thoughtTokens?: number;
+  meteredCalls?: number;
   inputTokens: number;
   outputTokens: number;
   reviewerModel: string;
@@ -133,6 +136,13 @@ export interface ReviewDetail {
   run: ReviewRun;
   report: ReviewReport | null;
   trace: {
+    usage?: {
+      cachedTokens?: number;
+      thoughtTokens?: number;
+      promptCharacters?: number;
+      queueMs?: number;
+      durationMs?: number;
+    } | null;
     key: string;
     role: string;
     model: string | null;

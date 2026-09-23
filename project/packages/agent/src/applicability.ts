@@ -7,6 +7,7 @@ import type {
   EvidenceRepository,
 } from '@verity/database';
 import type { StructuredCall } from './parallel-review.js';
+import { relatedChecks, promptCheck } from './review-efficiency.js';
 import { chunks, exactIds } from './parallel-contracts.js';
 import { mapConcurrent, concurrencySetting } from './scheduler.js';
 
@@ -84,8 +85,10 @@ export async function applyRelationships(input: {
   });
   await mapConcurrent(
     chunks(
-      checks.filter((check) => check.direction === 'quotation_to_policy'),
-      16,
+      (job.run.batchingVersion >= 3 ? relatedChecks(checks) : checks).filter(
+        (check) => check.direction === 'quotation_to_policy',
+      ),
+      job.run.batchingVersion >= 3 ? 32 : 16,
     ),
     concurrencySetting(),
     async (packet) => {
@@ -95,7 +98,7 @@ export async function applyRelationships(input: {
         .slice(0, 24);
       const items = await Promise.all(
         packet.map(async (check) => ({
-          check,
+          check: job.run.batchingVersion >= 3 ? promptCheck(check) : check,
           evidence: await evidence.resolve(
             job.run.workspaceId,
             [...new Set(check.members.flatMap((member) => member.evidenceIds))],

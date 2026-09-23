@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "migrate": "node --import ../../scripts/load-env.mjs --import tsx src/cli.ts"
+    "migrate": "node --import ../../scripts/load-env.mjs --import tsx src/cli.ts",
+    "review:usage": "node --import ../../scripts/load-env.mjs --import tsx src/review-usage.ts"
   },
   "dependencies": {
     "@verity/core": "workspace:*",

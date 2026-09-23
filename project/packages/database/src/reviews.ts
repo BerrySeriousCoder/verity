@@ -13,7 +13,7 @@ import type {
   DocumentRelationships,
 } from '@verity/core';
 
-const columns = `batching_version AS "batchingVersion", policy_ids AS "policyIds", document_relationships AS "documentRelationships", engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `cached_tokens::float8 AS "cachedTokens", thought_tokens::float8 AS "thoughtTokens", metered_calls AS "meteredCalls", batching_version AS "batchingVersion", policy_ids AS "policyIds", document_relationships AS "documentRelationships", engine_version AS "engineVersion", id, workspace_id AS "workspaceId", policy_id AS "policyId", quotation_ids AS "quotationIds", task, roles_resolved AS "rolesResolved", messages, scope, status, phase, error, revision, answers, model_calls AS "modelCalls", input_tokens AS "inputTokens", output_tokens AS "outputTokens", reviewer_model AS "reviewerModel", auditor_model AS "auditorModel", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export interface ReviewJob {
   run: ReviewRun;
   leaseToken: string;
@@ -258,7 +258,7 @@ export function reviewRepository(pool: Pool) {
       ).rows[0];
       if (!run) return null;
       const trace = await pool.query<ReviewDetail['trace'][number]>(
-        `SELECT key,role,model,input_tokens AS "inputTokens",output_tokens AS "outputTokens",created_at AS "createdAt" FROM review_steps WHERE run_id=$1 ORDER BY created_at,key`,
+        `SELECT usage_details AS usage,key,role,model,input_tokens AS "inputTokens",output_tokens AS "outputTokens",created_at AS "createdAt" FROM review_steps WHERE run_id=$1 ORDER BY created_at,key`,
         [id],
       );
       const { report, ...state } = run;
@@ -384,12 +384,25 @@ export function reviewRepository(pool: Pool) {
     },
     async recordModelUsage(
       job: ReviewJob,
-      usage: { inputTokens: number; outputTokens: number },
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cachedTokens?: number;
+        thoughtTokens?: number;
+      },
     ): Promise<void> {
       if (!usage.inputTokens && !usage.outputTokens) return;
       const result = await pool.query(
-        "UPDATE review_runs SET input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running'",
-        [job.run.id, job.leaseToken, usage.inputTokens, usage.outputTokens],
+        "UPDATE review_runs SET input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,cached_tokens=cached_tokens+$5,thought_tokens=thought_tokens+$6,metered_calls=metered_calls+$7,updated_at=now() WHERE id=$1 AND lease_token=$2 AND status='running'",
+        [
+          job.run.id,
+          job.leaseToken,
+          usage.inputTokens,
+          usage.outputTokens,
+          usage.cachedTokens ?? 0,
+          usage.thoughtTokens ?? 0,
+          usage.cachedTokens === undefined ? 0 : 1,
+        ],
       );
       if (!result.rowCount) throw new Error('Review lease lost or cancelled.');
     },
@@ -426,6 +439,9 @@ export function reviewRepository(pool: Pool) {
         model: string;
         inputTokens: number;
         outputTokens: number;
+        cachedTokens?: number;
+        thoughtTokens?: number;
+        promptCharacters?: number;
         queueMs?: number;
         durationMs?: number;
       },
@@ -442,7 +458,7 @@ export function reviewRepository(pool: Pool) {
         if (!locked.rowCount)
           throw new Error('Review lease lost or cancelled.');
         const saved = await client.query(
-          'INSERT INTO review_steps(run_id,key,output,role,model,input_tokens,output_tokens) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING key',
+          'INSERT INTO review_steps(run_id,key,output,role,model,input_tokens,output_tokens,usage_details) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING key',
           [
             job.run.id,
             key,
@@ -451,11 +467,20 @@ export function reviewRepository(pool: Pool) {
             usage?.model ?? null,
             usage?.inputTokens ?? 0,
             usage?.outputTokens ?? 0,
+            usage
+              ? JSON.stringify({
+                  cachedTokens: usage.cachedTokens,
+                  thoughtTokens: usage.thoughtTokens,
+                  promptCharacters: usage.promptCharacters,
+                  queueMs: usage.queueMs,
+                  durationMs: usage.durationMs,
+                })
+              : null,
           ],
         );
         if (saved.rowCount)
           await client.query(
-            'UPDATE review_runs SET phase=coalesce($2,phase),input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,report=coalesce($5::jsonb,report),updated_at=now() WHERE id=$1',
+            'UPDATE review_runs SET phase=coalesce($2,phase),input_tokens=input_tokens+$3,output_tokens=output_tokens+$4,report=coalesce($5::jsonb,report),cached_tokens=cached_tokens+$6,thought_tokens=thought_tokens+$7,metered_calls=metered_calls+$8,updated_at=now() WHERE id=$1',
             [
               job.run.id,
               key.startsWith('progress/')
@@ -479,11 +504,17 @@ export function reviewRepository(pool: Pool) {
               usage?.inputTokens ?? 0,
               usage?.outputTokens ?? 0,
               key.startsWith('progress/') ? JSON.stringify(output) : null,
+              usage?.cachedTokens ?? 0,
+              usage?.thoughtTokens ?? 0,
+              usage?.cachedTokens === undefined ? 0 : 1,
             ],
           );
         if (saved.rowCount && usage) {
           const encoded = JSON.stringify({
             workerId,
+            cachedTokens: usage.cachedTokens,
+            thoughtTokens: usage.thoughtTokens,
+            promptCharacters: usage.promptCharacters,
             queueMs: usage.queueMs,
             durationMs: usage.durationMs,
             output,
@@ -502,6 +533,9 @@ export function reviewRepository(pool: Pool) {
               encoded.length > 120000
                 ? JSON.stringify({
                     workerId,
+                    cachedTokens: usage.cachedTokens,
+                    thoughtTokens: usage.thoughtTokens,
+                    promptCharacters: usage.promptCharacters,
                     queueMs: usage.queueMs,
                     durationMs: usage.durationMs,
                     preview: encoded.slice(0, 110000),

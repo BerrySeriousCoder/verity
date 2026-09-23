@@ -56,7 +56,7 @@ The later agent evaluation benchmark is separate from engineering tests. Use rev
 
 ## Current limits
 
-This is a single-user development application without authentication. The API refuses production mode and binds only to localhost; workspace filtering does not replace authorization. Shared deployment requires authentication, membership enforcement, operational resource limits, backups, and recovery work.
+Local development binds to localhost. The full Docker runtime provides password-protected access to one shared workspace, applies migrations and seeds demo documents automatically. The API accepts production startup only behind that managed runtime and stays bound to loopback. See [Docker and Railway setup](../docs/08-deployment.md). Multi-user accounts and tenant membership are not implemented.
 
 Engineering tests use a deterministic model double; they test orchestration and do not establish Gemini accuracy. The generated-source live smoke test has completed successfully with Gemini, establishing SDK/schema/runtime compatibility rather than domain accuracy. Model choice is configurable through `GEMINI_MODEL` and `GEMINI_AUDITOR_MODEL`; defaults follow Google's current documented example. External model calls incur provider charges and send selected source excerpts to Gemini.
 
@@ -101,3 +101,9 @@ Additional live smoke test: `LIVE_MULTI_POLICY=1 pnpm test:live` (synthetic thre
 Resume now restores the saved questionnaire and completed findings before dispatching unfinished checks. Do not start over after a provider spending/quota failure: resolve the provider limit, restart the updated app, then resume the existing task. Interrupted calls without a committed checkpoint may repeat; completed findings are reused.
 
 Migration 0007 preserves the batching configuration of existing tasks. New tasks use up to three adjacent PDF pages or three spreadsheet row sections per inventory/audit pack, with 60,000-character/200-block splitting, 80-observation consolidation partitions, and 16-check comparison/verification packets. Independent coverage auditing remains enabled. Larger batches reduce request overhead but are not a measured cost or latency guarantee.
+
+### Lower-cost new reviews
+
+Migration 0008 pins new reviews to batching version 3: compact independent inventory output, compact citation-preserving model inputs, more focused retrieval, related-check ordering and conservative shared comparisons for matching reciprocal checks. Both directional results remain visible and independently verified; existing tasks keep their saved layout. See [decision 0010](../docs/decisions/0010-review-cost-efficiency.md).
+
+`pnpm review:usage <run-id>` reports input/output/cache/thought tokens and saved-request latency by stage. Cache telemetry on historical runs is unknown. Try the [one-page / one-sheet fictional fixture](../testdoc/dummy/README.md) for a short run; do not upload its answer key.

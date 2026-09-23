@@ -79,15 +79,22 @@ export function scriptedModel(
             false,
             'independent auditor must not see reviewer inventory',
           );
-        const blocks = input['blocks'] as { id: string; text: string }[];
+        const blocks = input['blocks'] as {
+          id: string;
+          text: string;
+          index?: number;
+        }[];
+        const compact = blocks[0]?.index !== undefined;
         value = {
           obligations: options.omitBlock
             ? []
             : [
                 {
                   title: 'Flood limit',
-                  category: 'Flood',
-                  evidenceIds: blocks.map((block) => block.id),
+                  category: compact ? 0 : 'Flood',
+                  ...(compact
+                    ? { sources: blocks.map((block) => block.index) }
+                    : { evidenceIds: blocks.map((block) => block.id) }),
                   references: [],
                 },
               ],

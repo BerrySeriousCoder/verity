@@ -38,3 +38,6 @@ Implemented details: [parallel review runtime](lld/03-parallel-review.md).
 - **Authorization:** permission to perform a specific action; separate from whether its claims are supported.
 - **Durability:** committed workflow state survives process failure.
 - **Replay:** inspection or re-execution of a recorded run. Re-execution with a model need not reproduce identical output.
+
+- [Docker and Railway deployment](08-deployment.md): authenticated private runtime, startup migrations/seeding, persistent volumes and required variables.
+- [Review cost efficiency](decisions/0010-review-cost-efficiency.md): compact evidence, conservative shared comparisons and usage measurements.

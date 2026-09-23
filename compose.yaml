@@ -1,0 +1,43 @@
+name: verity-container
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: verity
+      POSTGRES_PASSWORD: ${DOCKER_DB_PASSWORD:-verity_container_local_only}
+      POSTGRES_DB: verity
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+  app:
+    image: verity:local
+    build: .
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    environment:
+      PORT: 8080
+      PUBLIC_ORIGIN: http://localhost:${APP_PORT:-8080}
+      DATABASE_URL: postgresql://verity:${DOCKER_DB_PASSWORD:-verity_container_local_only}@postgres:5432/verity
+      BLOB_DIRECTORY: /data/blobs
+      APP_USERNAME: ${APP_USERNAME:-verity}
+      APP_PASSWORD: ${APP_PASSWORD:?Set APP_PASSWORD to a password of at least 16 characters}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      GEMINI_AUDITOR_MODEL: ${GEMINI_AUDITOR_MODEL:-gemini-3.8-flash}
+      GEMINI_MAX_CONCURRENCY: ${GEMINI_MAX_CONCURRENCY:-6}
+      SEED_DEMO_DOCUMENTS: ${SEED_DEMO_DOCUMENTS:-true}
+    volumes:
+      - documents:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 25s
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  documents:

@@ -1,0 +1,19 @@
+.git
+.github
+.agents
+.codex
+**/node_modules
+**/.next
+**/.next-e2e
+**/.data
+**/.env
+**/.env.*
+!**/.env.example
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+**/*.log
+docs
+# Never copy the user's real policy/quotation files into the build context.
+testdoc/*
+!testdoc/dummy

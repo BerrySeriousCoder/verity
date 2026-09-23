@@ -109,3 +109,11 @@ Added versioned larger batching for new runs while preserving old run checkpoint
 Validation: strict types, formatting, unit tests and production build passed; 30 PostgreSQL integration tests passed. New regressions cover restoration of overwritten completed rows before model dispatch, unfinished-only resumption, exact six-page coverage in two packets per independent pass, and concurrent 16/8-check packet merging.
 
 Live smoke attempt for this increment did not pass: the installed Gemini SDK raised `APIConnectionError: Unexpected HTTP client error: TypeError: unusable` during an inventory request. This is recorded separately from the passing deterministic tests; no live-model accuracy or latency result is claimed for the new batch sizes.
+
+## 2026-09-23 — Cost efficiency, short fictional fixture and deployable demo
+
+Implemented batching version 3 with compact independently produced inventories, source-preserving model projections, focused counterpart retrieval, conservative paired comparisons, and cache/thought/request usage accounting. Old runs keep their checkpoint layout. See decision 0010; actual model cost and quality gains remain unmeasured until the next comparable run.
+
+Created a one-page fictional policy and one-sheet fictional placement slip under `testdoc/dummy`, with nine deliberate differences and a separate arithmetic-aware answer key. Private originals stay ignored. Added a root Docker/Compose/Railway deployment with an authenticated single-workspace gateway, automatic migrations/workspace/demo initialization, persistent document storage, process supervision and streaming proxy support. See deployment guide for required Railway variables and volumes.
+
+Validation: `pnpm check`, 33 database integration tests, the fixture extraction test, gateway authentication/origin/SSE tests, and a full Docker image build passed. An isolated Docker deployment passed automatic bootstrap, authenticated UI/API, worker extraction and file retrieval; restarting it preserved exactly two documents and one workspace without duplicate seeding or model calls. Railway itself has not been deployed from this environment.
