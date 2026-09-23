@@ -202,15 +202,46 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     .getByRole('button', { name: /Flood limit/ })
     .first()
     .click();
+  await expect(
+    ledger.getByRole('heading', { name: 'Flood limit', exact: true }),
+  ).toBeVisible();
+  await expect(
+    ledger.getByRole('heading', { name: 'Policy · What was issued' }),
+  ).toBeVisible();
+  await expect(
+    ledger.getByRole('heading', { name: 'Quotation · What was offered' }),
+  ).toBeVisible();
+  await expect(ledger.getByLabel('Cited evidence highlight')).toBeVisible();
+  await expect(
+    ledger.getByRole('row', { name: 'Cited spreadsheet row' }),
+  ).toBeVisible();
+  const quotationPane = ledger.getByRole('region', {
+    name: 'Quotation · What was offered',
+  });
+  const policyPane = ledger.getByRole('region', {
+    name: 'Policy · What was issued',
+  });
+  const quotationBox = await quotationPane.boundingBox();
+  const policyBox = await policyPane.boundingBox();
+  expect(quotationBox!.x + quotationBox!.width).toBeLessThanOrEqual(
+    policyBox!.x,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('side-by-side-comparison.png'),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await ledger
+    .getByText('Review details and verification', { exact: true })
+    .click();
   await expect(ledger.getByText('Original observations (2)')).toBeVisible();
-  await expect(
-    ledger.getByRole('heading', { name: 'Policy evidence' }),
-  ).toBeVisible();
-  await ledger.getByRole('button', { name: 'Source 1 ↗' }).first().click();
-  await expect(
-    page.getByRole('complementary', { name: 'Source inspector' }),
-  ).toBeVisible();
-  await expect(page.getByLabel('Cited evidence highlight')).toBeVisible();
+  await ledger.getByRole('button', { name: 'Back to results' }).click();
   await expect(
     page.getByRole('link', { name: 'Download report with evidence' }),
   ).toBeVisible();

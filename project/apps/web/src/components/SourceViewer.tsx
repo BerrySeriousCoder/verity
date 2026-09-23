@@ -29,9 +29,11 @@ function columnLabel(index: number) {
 export function SourceViewer({
   document,
   citation,
+  compact = false,
 }: {
   document: DocumentVersion;
   citation?: EvidenceBlock;
+  compact?: boolean;
 }) {
   const [extraction, setExtraction] = useState<ExtractionSummary | null>(null);
   const [unitId, setUnitId] = useState('');
@@ -44,6 +46,14 @@ export function SourceViewer({
   const [hasMore, setHasMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const unitGeneration = useRef(0);
+  const selectedRow = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    selectedRow.current?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    });
+  }, [blocks, selected]);
 
   useEffect(() => {
     if (citation) {
@@ -127,7 +137,15 @@ export function SourceViewer({
     }
   }
 
-  const rows = blocks.filter((block) => block.anchor.kind === 'sheet');
+  const rows = [
+    ...blocks,
+    ...(selected?.unitId === unitId &&
+    !blocks.some((block) => block.id === selected.id)
+      ? [selected]
+      : []),
+  ]
+    .filter((block) => block.anchor.kind === 'sheet')
+    .sort((a, b) => a.ordinal - b.ordinal);
   const columns = [
     ...new Set(
       rows.flatMap((block) =>
@@ -179,6 +197,14 @@ export function SourceViewer({
                     block.anchor.kind === 'sheet' && (
                       <tr
                         key={block.id}
+                        ref={
+                          selected?.id === block.id ? selectedRow : undefined
+                        }
+                        aria-label={
+                          selected?.id === block.id
+                            ? 'Cited spreadsheet row'
+                            : undefined
+                        }
                         className={
                           selected?.id === block.id
                             ? 'bg-amber-100'
@@ -221,149 +247,158 @@ export function SourceViewer({
           </p>
         </div>
       )}
-      <div className="space-y-4 border-t border-stone-200 p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">Source evidence</h3>
-          <span className="text-xs text-stone-500">
-            {extraction?.status ?? 'Loading…'}
-          </span>
-        </div>
-        {error && (
-          <p role="alert" className="text-xs text-amber-800">
-            {error}{' '}
-            <Button onClick={() => setAttempt(attempt + 1)}>Retry</Button>
-          </p>
-        )}
-        {extraction?.status === 'failed' && (
-          <div className="text-xs text-amber-800">
-            {extraction.error}
-            <Button
-              onClick={() => {
-                void api
-                  .retryExtraction(document)
-                  .then(() => setAttempt(attempt + 1))
-                  .catch((cause: unknown) =>
-                    setError(
-                      cause instanceof Error ? cause.message : 'Retry failed.',
-                    ),
-                  );
-              }}
-            >
-              Retry extraction
-            </Button>
+      <details open={!compact} className="border-t border-stone-200 p-5">
+        <summary className="cursor-pointer text-xs font-medium text-stone-600">
+          Browse and search source
+        </summary>
+        <div className="mt-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Source evidence</h3>
+            <span className="text-xs text-stone-500">
+              {extraction?.status ?? 'Loading…'}
+            </span>
           </div>
-        )}
-        {!!extraction?.warnings.length && (
-          <details className="text-xs text-amber-800">
-            <summary>Source limitations ({extraction.warnings.length})</summary>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              {extraction.warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {!!extraction?.units.length && (
-          <>
-            <label className="block text-xs text-stone-500">
-              Read a page or row range
-              <select
-                className="mt-2 block w-full rounded border border-stone-200 bg-white p-2 text-stone-800"
-                value={unitId}
-                onChange={(event) => {
-                  setUnitId(event.target.value);
-                  setResults(null);
+          {error && (
+            <p role="alert" className="text-xs text-amber-800">
+              {error}{' '}
+              <Button onClick={() => setAttempt(attempt + 1)}>Retry</Button>
+            </p>
+          )}
+          {extraction?.status === 'failed' && (
+            <div className="text-xs text-amber-800">
+              {extraction.error}
+              <Button
+                onClick={() => {
+                  void api
+                    .retryExtraction(document)
+                    .then(() => setAttempt(attempt + 1))
+                    .catch((cause: unknown) =>
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : 'Retry failed.',
+                      ),
+                    );
                 }}
               >
-                {extraction.units.map((unit) => (
-                  <option value={unit.id} key={unit.id}>
-                    {unit.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <form
-              className="flex gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void search();
-              }}
-            >
-              <input
-                aria-label="Search source"
-                className="min-w-0 flex-1 rounded border border-stone-200 px-3 py-2 text-xs"
-                placeholder="Find a clause, amount, or phrase"
-                maxLength={300}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-              <Button type="submit" disabled={!query.trim() || loading}>
-                Search
+                Retry extraction
               </Button>
-              {results && (
-                <Button type="button" onClick={() => setResults(null)}>
-                  Clear
-                </Button>
-              )}
-            </form>
-            <div className="max-h-72 space-y-2 overflow-auto">
-              {(results ?? blocks).map((block) => (
-                <button
-                  key={block.id}
-                  className={`block w-full rounded border p-3 text-left text-xs leading-5 wrap-anywhere whitespace-pre-wrap ${selected?.id === block.id ? 'border-amber-300 bg-amber-50' : 'border-stone-100 hover:bg-stone-50'}`}
-                  onClick={() => {
-                    setSelected(block);
-                    if (block.unitId !== unitId) setUnitId(block.unitId);
+            </div>
+          )}
+          {!!extraction?.warnings.length && (
+            <details className="text-xs text-amber-800">
+              <summary>
+                Source limitations ({extraction.warnings.length})
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {extraction.warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {!!extraction?.units.length && (
+            <>
+              <label className="block text-xs text-stone-500">
+                Read a page or row range
+                <select
+                  className="mt-2 block w-full rounded border border-stone-200 bg-white p-2 text-stone-800"
+                  value={unitId}
+                  onChange={(event) => {
+                    setUnitId(event.target.value);
+                    setResults(null);
                   }}
                 >
-                  {block.text}
-                </button>
-              ))}
-              {!loading && !(results ?? blocks).length && (
-                <p className="text-xs text-stone-500">
-                  No extracted text in this selection.
-                </p>
-              )}
-            </div>
-            {loading && (
-              <p className="text-xs text-stone-500" role="status">
-                Reading source…
-              </p>
-            )}
-            {hasMore && !results && (
-              <Button
-                disabled={loading}
-                onClick={() => {
-                  setLoading(true);
-                  const generation = unitGeneration.current;
-                  void api
-                    .blocks(document.workspaceId, unitId, blocks.length)
-                    .then((value) => {
-                      if (generation !== unitGeneration.current) return;
-                      setBlocks((current) => [...current, ...value.blocks]);
-                      setHasMore(value.hasMore);
-                    })
-                    .catch(
-                      (cause: unknown) =>
-                        generation === unitGeneration.current &&
-                        setError(
-                          cause instanceof Error
-                            ? cause.message
-                            : 'Read failed.',
-                        ),
-                    )
-                    .finally(() => {
-                      if (generation === unitGeneration.current)
-                        setLoading(false);
-                    });
+                  {extraction.units.map((unit) => (
+                    <option value={unit.id} key={unit.id}>
+                      {unit.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <form
+                className="flex gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void search();
                 }}
               >
-                Read more blocks
-              </Button>
-            )}
-          </>
-        )}
-      </div>
+                <input
+                  aria-label="Search source"
+                  className="min-w-0 flex-1 rounded border border-stone-200 px-3 py-2 text-xs"
+                  placeholder="Find a clause, amount, or phrase"
+                  maxLength={300}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <Button type="submit" disabled={!query.trim() || loading}>
+                  Search
+                </Button>
+                {results && (
+                  <Button type="button" onClick={() => setResults(null)}>
+                    Clear
+                  </Button>
+                )}
+              </form>
+              <div className="max-h-72 space-y-2 overflow-auto">
+                {(results ?? blocks).map((block) => (
+                  <button
+                    key={block.id}
+                    className={`block w-full rounded border p-3 text-left text-xs leading-5 wrap-anywhere whitespace-pre-wrap ${selected?.id === block.id ? 'border-amber-300 bg-amber-50' : 'border-stone-100 hover:bg-stone-50'}`}
+                    onClick={() => {
+                      setSelected(block);
+                      if (block.unitId !== unitId) setUnitId(block.unitId);
+                    }}
+                  >
+                    {block.text}
+                  </button>
+                ))}
+                {!loading && !(results ?? blocks).length && (
+                  <p className="text-xs text-stone-500">
+                    No extracted text in this selection.
+                  </p>
+                )}
+              </div>
+              {loading && (
+                <p className="text-xs text-stone-500" role="status">
+                  Reading source…
+                </p>
+              )}
+              {hasMore && !results && (
+                <Button
+                  disabled={loading}
+                  onClick={() => {
+                    setLoading(true);
+                    const generation = unitGeneration.current;
+                    void api
+                      .blocks(document.workspaceId, unitId, blocks.length)
+                      .then((value) => {
+                        if (generation !== unitGeneration.current) return;
+                        setBlocks((current) => [...current, ...value.blocks]);
+                        setHasMore(value.hasMore);
+                      })
+                      .catch(
+                        (cause: unknown) =>
+                          generation === unitGeneration.current &&
+                          setError(
+                            cause instanceof Error
+                              ? cause.message
+                              : 'Read failed.',
+                          ),
+                      )
+                      .finally(() => {
+                        if (generation === unitGeneration.current)
+                          setLoading(false);
+                      });
+                  }}
+                >
+                  Read more blocks
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </details>
     </section>
   );
 }

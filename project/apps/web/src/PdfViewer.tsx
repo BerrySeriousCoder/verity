@@ -26,6 +26,17 @@ export function PdfViewer({
   const [rendering, setRendering] = useState(true);
   const [attempt, setAttempt] = useState(0);
   const surface = useRef<HTMLDivElement>(null);
+  const viewportContainer = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(600);
+  useEffect(() => {
+    const element = viewportContainer.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() =>
+      setAvailableWidth(Math.max(200, element.clientWidth - 48)),
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (anchor) setPage(anchor.pageIndex + 1);
@@ -72,7 +83,10 @@ export function PdfViewer({
     void (async () => {
       const pdfPage = await pdf.getPage(page);
       if (cancelled) return;
-      const viewport = pdfPage.getViewport({ scale: zoom });
+      const natural = pdfPage.getViewport({ scale: 1 });
+      const viewport = pdfPage.getViewport({
+        scale: Math.min(1, availableWidth / natural.width) * zoom,
+      });
       const ratio = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = Math.ceil(viewport.width * ratio);
       canvas.height = Math.ceil(viewport.height * ratio);
@@ -124,6 +138,14 @@ export function PdfViewer({
             overlay.append(rect);
           }
           container.append(overlay);
+          const first = anchor.rectangles[0];
+          if (first && viewportContainer.current) {
+            const rectangle = viewport.convertToViewportRectangle(first);
+            viewportContainer.current.scrollTop = Math.max(
+              0,
+              Math.min(rectangle[1]!, rectangle[3]!) - 80,
+            );
+          }
         }
         setRendering(false);
       }
@@ -138,7 +160,7 @@ export function PdfViewer({
       cancelRender?.();
       canvas.remove();
     };
-  }, [pdf, page, zoom, document.filename, anchor]);
+  }, [pdf, page, zoom, document.filename, anchor, availableWidth]);
 
   const pages = pdf?.numPages ?? document.pageCount;
   return (
@@ -211,7 +233,10 @@ export function PdfViewer({
           +
         </Button>
       </div>
-      <div className="h-140 overflow-auto bg-stone-100 p-4 md:h-160 md:p-6">
+      <div
+        ref={viewportContainer}
+        className="h-140 overflow-auto bg-stone-100 p-4 md:h-160 md:p-6"
+      >
         {rendering && (
           <p className="text-xs text-stone-500" role="status">
             Loading page…

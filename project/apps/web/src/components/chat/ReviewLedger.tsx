@@ -1,99 +1,25 @@
 'use client';
 import { useEffect, useState } from 'react';
-import type { ReviewCheck, ResolvedEvidence } from '@verity/core';
+import type { ReviewCheck } from '@verity/core';
 import {
   isResolvedFinding,
   findingStatusLabel,
 } from '@verity/core/review-results';
-import { api } from '../../api';
-import { Finding } from './Timeline';
+import { ComparisonEvidence } from './ComparisonEvidence';
 
-function CheckEvidence({
-  check,
-  workspaceId,
-  policyIds,
-  onCitation,
-}: {
-  check: ReviewCheck;
-  workspaceId: string;
-  policyIds: string[];
-  onCitation: (id: string) => void;
-}) {
-  const [sources, setSources] = useState<ResolvedEvidence[]>([]);
-  const [error, setError] = useState('');
-  const evidenceKey = JSON.stringify([
-    ...new Set([
-      ...check.members.flatMap((member) => member.evidenceIds),
-      ...(check.finding?.evidenceIds ?? []),
-    ]),
-  ]);
-  useEffect(() => {
-    let stopped = false;
-    setSources([]);
-    setError('');
-    const ids: string[] = JSON.parse(evidenceKey);
-    void Promise.all(ids.map((id) => api.evidence(workspaceId, id)))
-      .then((result) => {
-        if (!stopped) setSources(result);
-      })
-      .catch(() => {
-        if (!stopped)
-          setError(
-            'Could not load source excerpts. Reopen this check to retry.',
-          );
-      });
-    return () => {
-      stopped = true;
-    };
-  }, [evidenceKey, workspaceId]);
-  return (
-    <>
-      <p role="status" className="text-xs text-amber-300">
-        {error}
-      </p>
-      <div className="grid gap-4 xl:grid-cols-2">
-        {['Policy', 'Quotation'].map((role, index) => (
-          <div key={role}>
-            <h4 className="mb-2 text-xs font-medium text-zinc-400">
-              {role} evidence
-            </h4>
-            {sources
-              .filter(
-                (source) =>
-                  policyIds.includes(source.documentId) === (index === 0),
-              )
-              .map((source) => (
-                <button
-                  key={source.id}
-                  onClick={() => onCitation(source.id)}
-                  className="mb-2 block w-full rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-left hover:border-emerald-700"
-                >
-                  <span className="mb-2 block text-[10px] text-emerald-400">
-                    {source.filename} · {source.label} ↗
-                  </span>
-                  <span className="block text-xs leading-6 whitespace-pre-wrap text-zinc-300">
-                    {source.text}
-                  </span>
-                </button>
-              ))}
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
+const shortTitle = (title: string) => title.replace(/^\[[^\]]+\]\s*/, '');
 
 export function ReviewLedger({
   checks,
   workspaceId,
   policyIds,
-  onCitation,
+  quotationIds,
   onClose,
 }: {
   checks: ReviewCheck[];
   workspaceId: string;
   policyIds: string[];
-  onCitation: (id: string) => void;
+  quotationIds: string[];
   onClose: () => void;
 }) {
   const [full, setFull] = useState(false);
@@ -135,6 +61,27 @@ export function ReviewLedger({
   const pages = Math.max(1, Math.ceil(visible.length / 40));
   const currentPage = Math.min(page, pages - 1);
   const current = checks.find((check) => check.id === selected);
+  useEffect(() => {
+    if (!current) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    document.getElementById('comparison-back')?.focus();
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelected(null);
+        history.replaceState(
+          null,
+          '',
+          `${location.pathname}${location.search}`,
+        );
+        previousFocus?.focus();
+      }
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [current?.id]);
   function select(id: string | null) {
     setSelected(id);
     history.replaceState(
@@ -147,7 +94,7 @@ export function ReviewLedger({
     <aside
       aria-label="Review questionnaire"
       className={
-        full
+        full || current
           ? 'fixed inset-0 z-20 flex flex-col bg-[#151515] p-5'
           : 'fixed inset-0 z-20 flex flex-col border-l border-zinc-800 bg-[#151515] lg:static lg:z-auto ' +
             (wide ? 'lg:w-[42rem]' : 'lg:w-96')
@@ -166,6 +113,7 @@ export function ReviewLedger({
         <div className="flex gap-2">
           <button
             className="hidden text-xs text-zinc-400 lg:block"
+            hidden={!!current}
             aria-label="Resize questionnaire"
             onClick={() => setWide(!wide)}
           >
@@ -173,6 +121,7 @@ export function ReviewLedger({
           </button>
           <button
             className="text-xs text-zinc-400"
+            hidden={!!current}
             aria-label={full ? 'Exit full screen' : 'Full screen questionnaire'}
             onClick={() => setFull(!full)}
           >
@@ -191,70 +140,97 @@ export function ReviewLedger({
         {current ? (
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <button
+              id="comparison-back"
               className="mb-5 text-xs text-emerald-400"
               onClick={() => select(null)}
             >
-              ← All checks
+              ← Back to results
             </button>
             <p className="mb-2 text-[10px] text-zinc-500">
               {current.category} · {current.state}
             </p>
-            {(groups.get(comparisonKey(current))?.length ?? 0) > 1 && (
-              <div className="mb-4 flex flex-wrap gap-2">
-                {groups.get(comparisonKey(current))!.map((check) => (
-                  <button
-                    key={check.id}
-                    onClick={() => select(check.id)}
-                    className="rounded border border-zinc-700 px-2 py-1 text-xs text-emerald-400"
-                  >
-                    {check.direction === 'policy_to_quotation'
-                      ? 'Policy → quotation'
-                      : 'Quotation → policy'}{' '}
-                    · {check.category}
-                  </button>
-                ))}
+            <h3 className="mb-4 text-2xl font-semibold">
+              {shortTitle(current.title)}
+            </h3>
+            {current.finding && (
+              <div className="mb-6 max-w-5xl rounded-xl border border-zinc-700 bg-zinc-900 p-5">
+                <span
+                  className={`inline-block rounded px-2 py-1 text-xs font-medium ${current.finding.status === 'different' ? 'bg-amber-950 text-amber-300' : current.finding.status === 'aligned' ? 'bg-emerald-950 text-emerald-300' : 'bg-zinc-800 text-zinc-300'}`}
+                >
+                  {findingStatusLabel(current.finding.status)}
+                </span>
+                <p className="mt-3 text-base leading-7 text-zinc-200">
+                  {current.finding.explanation}
+                </p>
+                {current.finding.question && (
+                  <p className="mt-3 text-sm text-amber-300">
+                    Needs clarification: {current.finding.question}
+                  </p>
+                )}
               </div>
             )}
-            <h3 className="mb-4 text-base font-medium">{current.title}</h3>
-            {current.applicability && (
-              <p className="mb-4 text-xs leading-6 text-zinc-400">
-                Applicability: {current.applicability.reason}
-                {current.applicability.uncertain ? ' (uncertain)' : ''}
-              </p>
-            )}
-            {current.finding && (
-              <Finding finding={current.finding} onCitation={onCitation} />
-            )}
-            {!current.finding && (
-              <p className="mb-4 text-xs text-zinc-400">
-                {current.state === 'discovered'
-                  ? 'Source observation awaiting consolidation.'
-                  : 'This check is awaiting a supported conclusion.'}
-              </p>
-            )}
-            <CheckEvidence
+            <ComparisonEvidence
+              key={current.id}
               check={current}
               workspaceId={workspaceId}
               policyIds={policyIds}
-              onCitation={onCitation}
+              quotationIds={quotationIds}
             />
-            <details className="mt-5 rounded-lg border border-zinc-800 p-3">
-              <summary className="cursor-pointer text-xs text-zinc-400">
-                Original observations ({current.members.length})
+            <details className="mt-6 rounded-xl border border-zinc-800 p-4">
+              <summary className="cursor-pointer text-sm text-zinc-400">
+                Review details and verification
               </summary>
-              {current.members.map((member) => (
-                <div
-                  key={member.id}
-                  className="mt-3 border-t border-zinc-800 pt-3 text-xs leading-6"
-                >
-                  <p>{member.title}</p>
-                  {member.references.map((reference, index) => (
-                    <p key={index} className="text-zinc-500">
-                      {reference}
-                    </p>
+              <p className="my-3 text-sm leading-6 text-zinc-400">
+                {current.finding?.verification ??
+                  'This check is still being reviewed.'}
+              </p>
+              {(groups.get(comparisonKey(current))?.length ?? 0) > 1 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {groups.get(comparisonKey(current))!.map((check) => (
+                    <button
+                      key={check.id}
+                      onClick={() => select(check.id)}
+                      className="rounded border border-zinc-700 px-2 py-1 text-xs text-emerald-400"
+                    >
+                      {check.direction === 'policy_to_quotation'
+                        ? 'Policy → quotation'
+                        : 'Quotation → policy'}{' '}
+                      · {check.category}
+                    </button>
                   ))}
                 </div>
-              ))}
+              )}
+              {current.applicability && (
+                <p className="mb-4 text-xs leading-6 text-zinc-400">
+                  Applicability: {current.applicability.reason}
+                  {current.applicability.uncertain ? ' (uncertain)' : ''}
+                </p>
+              )}
+              {!current.finding && (
+                <p className="mb-4 text-xs text-zinc-400">
+                  {current.state === 'discovered'
+                    ? 'Source observation awaiting consolidation.'
+                    : 'This check is awaiting a supported conclusion.'}
+                </p>
+              )}
+              <details className="mt-5 rounded-lg border border-zinc-800 p-3">
+                <summary className="cursor-pointer text-xs text-zinc-400">
+                  Original observations ({current.members.length})
+                </summary>
+                {current.members.map((member) => (
+                  <div
+                    key={member.id}
+                    className="mt-3 border-t border-zinc-800 pt-3 text-xs leading-6"
+                  >
+                    <p>{member.title}</p>
+                    {member.references.map((reference, index) => (
+                      <p key={index} className="text-zinc-500">
+                        {reference}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </details>
             </details>
             {current.workerId && (
               <a
@@ -348,10 +324,10 @@ export function ReviewLedger({
                   >
                     <span className="flex items-start justify-between gap-2">
                       <span className="text-xs leading-5 font-medium text-zinc-200">
-                        {check.title}
+                        {shortTitle(check.title)}
                       </span>
                       <span
-                        className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding && isResolvedFinding(check.finding) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
+                        className={`shrink-0 rounded px-1.5 py-1 text-[10px] ${check.finding?.status === 'different' ? 'bg-amber-950 text-amber-300' : check.finding && isResolvedFinding(check.finding) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-zinc-300'}`}
                       >
                         {check.state === 'done'
                           ? check.finding

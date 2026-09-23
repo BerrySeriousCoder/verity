@@ -71,3 +71,11 @@ Before building the agent, prove that a stored evidence ID opens and highlights 
 7. Old file version after replacement, unauthorized workspace access, expired file URL, and rapid navigation clicks.
 
 Assert resolver identity and coordinate transformations mechanically; inspect screenshots against known annotated fixtures for actual visual alignment. This validates provenance and navigation, not semantic support of the claim.
+
+## September 23, 2026 — Comparison-first finding detail
+
+Selecting a questionnaire result opens a full-width evidence comparison. The finding title appears once without the repeated relationship prefix, followed by its status and explanation. Quotation (offered) and policy (issued) are rendered side by side on desktop and stacked on mobile. Each side has its own citation selector, original document viewer, and exact source excerpt. Selecting another citation can change the document or page independently; missing evidence is explicitly shown rather than inferred from the opposite role.
+
+PDF pages fit the available pane width and scroll to the cited region. Spreadsheet citations select and scroll to the cited row, including when that row falls outside the first loaded block page. Source browsing/search is collapsed by default in comparison mode. Verification, applicability, reciprocal checks, and raw observations remain available under a separate disclosure. Mismatches use amber; aligned results use green. Back to results preserves the list filters; Escape leaves finding detail.
+
+This is a presentation change over saved evidence. It performs no model calls and does not change findings or verification. Original file access from the chat remains available separately. Browser regression checks cover simultaneous PDF/sheet highlighting, desktop side-by-side placement, and mobile overflow.

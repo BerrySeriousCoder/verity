@@ -622,7 +622,7 @@ export function App() {
           checks={detail.checks ?? []}
           workspaceId={workspace.id}
           policyIds={detail.run.policyIds}
-          onCitation={(id) => void openCitation(id)}
+          quotationIds={detail.run.quotationIds}
           onClose={() => setLedgerOpen(false)}
         />
       )}
