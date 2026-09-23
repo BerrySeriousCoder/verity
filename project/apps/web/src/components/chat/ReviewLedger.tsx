@@ -1,7 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { ReviewCheck, ResolvedEvidence } from '@verity/core';
-import { isResolvedFinding } from '@verity/core/review-results';
+import {
+  isResolvedFinding,
+  findingStatusLabel,
+} from '@verity/core/review-results';
 import { api } from '../../api';
 import { Finding } from './Timeline';
 
@@ -275,8 +278,8 @@ export function ReviewLedger({
           <>
             <div className="space-y-3 border-b border-zinc-800 p-4">
               <p className="text-[11px] leading-5 text-zinc-400">
-                Different means the cited policy and quotation terms disagree.
-                It does not decide which document is correct.
+                Mismatch means the cited policy and quotation terms disagree. It
+                does not decide which document is correct.
               </p>
               <label className="flex items-center gap-2 text-xs text-zinc-400">
                 <input
@@ -321,7 +324,9 @@ export function ReviewLedger({
                   'needs_input',
                 ].map((state) => (
                   <option key={state} value={state}>
-                    {state.replaceAll('_', ' ')}
+                    {state === 'different'
+                      ? 'Mismatch'
+                      : state.replaceAll('_', ' ')}
                   </option>
                 ))}
               </select>
@@ -349,7 +354,9 @@ export function ReviewLedger({
                         className={`shrink-0 rounded px-1.5 py-1 text-[9px] ${check.finding && isResolvedFinding(check.finding) ? 'bg-emerald-950 text-emerald-400' : 'bg-zinc-800 text-amber-300'}`}
                       >
                         {check.state === 'done'
-                          ? check.finding?.status.replaceAll('_', ' ')
+                          ? check.finding
+                            ? findingStatusLabel(check.finding.status)
+                            : check.state
                           : check.state}
                       </span>
                     </span>

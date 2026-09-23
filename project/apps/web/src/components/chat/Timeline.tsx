@@ -1,4 +1,5 @@
 'use client';
+import { findingStatusLabel } from '@verity/core/review-results';
 
 import { useMemo } from 'react';
 import type { ReviewEvent, ReviewFinding } from '@verity/core';
@@ -55,7 +56,7 @@ export function Finding({
         <span
           className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${finding.status === 'aligned' ? 'bg-emerald-950 text-emerald-300' : 'bg-amber-950/60 text-amber-300'}`}
         >
-          {finding.status.replaceAll('_', ' ')}
+          {findingStatusLabel(finding.status)}
         </span>
       </div>
       <p className="mt-2 leading-7 text-zinc-300">{finding.explanation}</p>

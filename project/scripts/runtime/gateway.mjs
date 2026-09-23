@@ -17,14 +17,15 @@ export function createGateway({
   const expected = digest(
     `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
   );
-  const origin = new URL(publicOrigin);
+  const origin = publicOrigin ? new URL(publicOrigin) : null;
   if (
-    !['http:', 'https:'].includes(origin.protocol) ||
-    origin.username ||
-    origin.password ||
-    origin.pathname !== '/' ||
-    origin.search ||
-    origin.hash
+    origin &&
+    (!['http:', 'https:'].includes(origin.protocol) ||
+      origin.username ||
+      origin.password ||
+      origin.pathname !== '/' ||
+      origin.search ||
+      origin.hash)
   )
     throw new Error(
       'PUBLIC_ORIGIN must be an HTTP(S) origin without a path or credentials.',
@@ -54,6 +55,16 @@ export function createGateway({
         response.writeHead(503, { 'Content-Type': 'application/json' });
         response.end('{"status":"unavailable"}');
       }
+      return;
+    }
+    if (!origin) {
+      response.writeHead(503, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Retry-After': '60',
+      });
+      response.end(
+        'Workspace access is waiting for domain configuration. Generate a Railway public domain and redeploy, or set PUBLIC_ORIGIN to your public URL.',
+      );
       return;
     }
     if (request.headers.host !== origin.host) {

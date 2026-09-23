@@ -18,6 +18,8 @@ This packages the current **single shared workspace** behind HTTP Basic authenti
 
 4. Generate a public domain on the application service and deploy/redeploy. The runtime uses `RAILWAY_PUBLIC_DOMAIN` automatically. For a custom domain set `PUBLIC_ORIGIN=https://your-domain.example` explicitly. Open that URL and sign in using the configured credentials.
 
+If no public domain is configured yet, the container starts with workspace requests blocked (HTTP 503), while `/healthz` checks service readiness. Generate a domain under **Settings → Networking → Public Networking → Generate Domain**, target the gateway port (`PORT`, default **8080**), and redeploy so Railway injects `RAILWAY_PUBLIC_DOMAIN`. This avoids a first-deployment crash loop without trusting arbitrary request hosts. A custom domain still requires an explicit `PUBLIC_ORIGIN`.
+
 Startup waits for PostgreSQL, applies checksum-verified migrations under an advisory lock, creates the workspace idempotently, and seeds the two fictional demo documents. It then starts Next.js, the API and the review/extraction worker. Seeding creates no review and makes no Gemini calls. `SEED_DEMO_DOCUMENTS=false` disables demo uploads; workspace initialization remains automatic. Original private reference documents and `.env` files are excluded from the image.
 
 Railway volumes mount as root. The entrypoint creates/chowns the blob directory, then drops privileges to the `node` user before migrations and application startup. All services share that blob directory. A child-process exit stops the whole service so Railway can restart it; review checkpoints live in PostgreSQL. `/healthz` checks both HTTP services and the worker process, without exposing workspace contents.

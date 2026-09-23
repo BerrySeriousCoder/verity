@@ -8,7 +8,9 @@ const publicOrigin =
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
     : '');
 if (!publicOrigin)
-  throw new Error('Set PUBLIC_ORIGIN or generate a Railway public domain.');
+  console.warn(
+    'Public domain not configured. Starting with workspace access blocked. In Railway Settings → Networking, generate a domain, then redeploy; or set PUBLIC_ORIGIN to your HTTPS URL.',
+  );
 for (const key of ['DATABASE_URL', 'GEMINI_API_KEY', 'BLOB_DIRECTORY'])
   if (!process.env[key]) throw new Error(`${key} is required for deployment.`);
 const port = Number(process.env.PORT || 8080);

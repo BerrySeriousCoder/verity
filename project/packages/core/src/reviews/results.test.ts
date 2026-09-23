@@ -20,7 +20,7 @@ test('historical verifier acceptance of uncertainty never counts as resolved', (
     assert.equal(isResolvedFinding({ ...finding, status }), false);
   assert.match(
     reviewSummary([finding, { ...finding, id: 'y', status: 'different' }]),
-    /1 checks have verified differences; 1 remain unresolved/,
+    /1 checks have verified mismatches; 1 remain unresolved/,
   );
   assert.equal(
     isResolvedFinding({ ...finding, status: 'aligned', verified: false }),

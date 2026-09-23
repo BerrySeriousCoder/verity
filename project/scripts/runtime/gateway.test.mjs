@@ -126,3 +126,41 @@ test('gateway rejects missing credentials and invalid origins', () => {
     /PUBLIC_ORIGIN/,
   );
 });
+
+test('first deployment without a domain starts healthy but never exposes the workspace', async () => {
+  let workspaceRequests = 0;
+  const api = createServer((request, response) => {
+    if (request.url !== '/api/health') workspaceRequests++;
+    response.end('ok');
+  });
+  const web = createServer((_request, response) => response.end('web'));
+  const apiPort = await listen(api),
+    webPort = await listen(web);
+  const gateway = createGateway({
+    username: 'tester',
+    password: 'long-demo-password',
+    publicOrigin: '',
+    apiPort,
+    webPort,
+  });
+  const port = await listen(gateway);
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    assert.equal((await fetch(`${base}/healthz`)).status, 200);
+    for (const path of ['/', '/api/workspace']) {
+      const response = await fetch(`${base}${path}`, {
+        headers: {
+          authorization: `Basic ${Buffer.from('tester:long-demo-password').toString('base64')}`,
+          'x-forwarded-host': 'pretend.up.railway.app',
+        },
+      });
+      assert.equal(response.status, 503);
+      assert.match(await response.text(), /Generate a Railway public domain/);
+    }
+    assert.equal(workspaceRequests, 0);
+  } finally {
+    await close(gateway);
+    await close(api);
+    await close(web);
+  }
+});
