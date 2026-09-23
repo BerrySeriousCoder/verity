@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReviewCheck } from '@verity/core';
 import {
   isResolvedFinding,
@@ -29,6 +29,63 @@ export function ReviewLedger({
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [grouped, setGrouped] = useState(true);
+  const panel = useRef<HTMLElement>(null);
+  const animation = useRef<Animation | null>(null);
+  const transitioning = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      animation.current?.cancel();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const element = panel.current;
+    if (
+      !element ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    )
+      return;
+    animation.current?.cancel();
+    animation.current = element.animate(
+      [
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ],
+      { duration: 200, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+    );
+    return () => animation.current?.cancel();
+  }, [selected, full, wide]);
+  async function transition(change: () => void) {
+    if (transitioning.current) return;
+    const element = panel.current;
+    if (
+      !element ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      change();
+      return;
+    }
+    transitioning.current = true;
+    animation.current?.cancel();
+    const exit = element.animate(
+      [
+        { opacity: 1, transform: 'translateY(0)' },
+        { opacity: 0, transform: 'translateY(6px)' },
+      ],
+      { duration: 120, easing: 'ease-in', fill: 'forwards' },
+    );
+    animation.current = exit;
+    try {
+      await exit.finished;
+      if (mounted.current) change();
+    } catch {
+      // Unmounting cancels pending navigation as well as its animation.
+    } finally {
+      transitioning.current = false;
+    }
+  }
   const comparisonKey = (check: ReviewCheck) =>
     check.finding?.comparisonId
       ? `${check.finding.comparisonId}:${check.finding.status}:${check.finding.verified}`
@@ -70,28 +127,34 @@ export function ReviewLedger({
     document.getElementById('comparison-back')?.focus();
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setSelected(null);
-        history.replaceState(
-          null,
-          '',
-          `${location.pathname}${location.search}`,
-        );
-        previousFocus?.focus();
+        void transition(() => {
+          setSelected(null);
+          history.replaceState(
+            null,
+            '',
+            `${location.pathname}${location.search}`,
+          );
+          previousFocus?.focus();
+        });
       }
     };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
   }, [current?.id]);
   function select(id: string | null) {
-    setSelected(id);
-    history.replaceState(
-      null,
-      '',
-      `${location.pathname}${location.search}${id ? `#check=${encodeURIComponent(id)}` : ''}`,
-    );
+    if (id === selected) return;
+    void transition(() => {
+      setSelected(id);
+      history.replaceState(
+        null,
+        '',
+        `${location.pathname}${location.search}${id ? `#check=${encodeURIComponent(id)}` : ''}`,
+      );
+    });
   }
   return (
     <aside
+      ref={panel}
       aria-label="Review questionnaire"
       className={
         full || current
@@ -115,7 +178,7 @@ export function ReviewLedger({
             className="hidden text-xs text-zinc-400 lg:block"
             hidden={!!current}
             aria-label="Resize questionnaire"
-            onClick={() => setWide(!wide)}
+            onClick={() => void transition(() => setWide(!wide))}
           >
             ↔
           </button>
@@ -123,14 +186,14 @@ export function ReviewLedger({
             className="text-xs text-zinc-400"
             hidden={!!current}
             aria-label={full ? 'Exit full screen' : 'Full screen questionnaire'}
-            onClick={() => setFull(!full)}
+            onClick={() => void transition(() => setFull(!full))}
           >
             {full ? '↙' : '↗'}
           </button>
           <button
             aria-label="Close questionnaire"
             className="px-2 text-zinc-400"
-            onClick={onClose}
+            onClick={() => void transition(onClose)}
           >
             ×
           </button>
