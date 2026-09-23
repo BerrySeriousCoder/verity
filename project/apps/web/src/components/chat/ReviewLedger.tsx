@@ -152,6 +152,10 @@ export function ReviewLedger({
       );
     });
   }
+  function close() {
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+    onClose();
+  }
   return (
     <aside
       ref={panel}
@@ -165,6 +169,15 @@ export function ReviewLedger({
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800 p-4">
         <div>
+          {current && (
+            <button
+              id="comparison-back"
+              className="mb-3 text-sm text-emerald-400"
+              onClick={() => select(null)}
+            >
+              ← Back to results
+            </button>
+          )}
           <h2 className="text-sm font-medium text-zinc-100">
             Review questionnaire
           </h2>
@@ -193,7 +206,7 @@ export function ReviewLedger({
           <button
             aria-label="Close questionnaire"
             className="px-2 text-zinc-400"
-            onClick={() => void transition(onClose)}
+            onClick={() => void transition(close)}
           >
             ×
           </button>
@@ -202,13 +215,6 @@ export function ReviewLedger({
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {current ? (
           <div className="min-h-0 flex-1 overflow-auto p-4">
-            <button
-              id="comparison-back"
-              className="mb-5 text-xs text-emerald-400"
-              onClick={() => select(null)}
-            >
-              ← Back to results
-            </button>
             <p className="mb-2 text-[10px] text-zinc-500">
               {current.category} · {current.state}
             </p>
@@ -305,7 +311,7 @@ export function ReviewLedger({
                       detail: current.workerId,
                     }),
                   );
-                  onClose();
+                  close();
                 }}
                 className="mt-4 inline-block text-xs text-emerald-400"
               >

@@ -241,6 +241,20 @@ test('prompt-first agent streams activity, exposes tools, and opens cited origin
     .getByText('Review details and verification', { exact: true })
     .click();
   await expect(ledger.getByText('Original observations (2)')).toBeVisible();
+  await expect(
+    ledger.getByRole('button', { name: 'Back to results' }),
+  ).toBeInViewport();
+  await ledger.getByRole('button', { name: 'Close questionnaire' }).click();
+  await expect(ledger).not.toBeVisible();
+  expect(new URL(page.url()).hash).toBe('');
+  await page.getByRole('button', { name: /Questionnaire/ }).click();
+  await expect(
+    ledger.getByRole('heading', { name: 'Flood limit', exact: true }),
+  ).not.toBeVisible();
+  await ledger
+    .getByRole('button', { name: /Flood limit/ })
+    .first()
+    .click();
   await ledger.getByRole('button', { name: 'Back to results' }).click();
   await expect(
     page.getByRole('link', { name: 'Download report with evidence' }),

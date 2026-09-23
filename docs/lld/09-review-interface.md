@@ -81,3 +81,5 @@ PDF pages fit the available pane width and scroll to the cited region. Spreadshe
 This is a presentation change over saved evidence. It performs no model calls and does not change findings or verification. Original file access from the chat remains available separately. Browser regression checks cover simultaneous PDF/sheet highlighting, desktop side-by-side placement, and mobile overflow.
 
 Finding navigation and panel resizing use a short fade-and-slide transition: 120 ms out, then 200 ms in. Closing waits for the exit animation before removing the panel. Repeated navigation clicks during an exit are ignored; unmount cancels pending navigation. Reduced-motion preferences bypass the animation.
+
+Back to results stays in the non-scrolling header. Closing the questionnaire clears the selected-check URL fragment so reopening starts at the results list; refreshing an open comparison still restores its deep link.
